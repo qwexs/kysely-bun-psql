@@ -8,32 +8,32 @@ import {
   type Driver,
   type Kysely,
   type QueryCompiler,
-} from 'kysely'
+} from "kysely";
 
-import {PostgresJSDriver} from './driver.js'
-import type {PostgresJSDialectConfig} from './types.js'
-import {freeze} from './utils.js'
+import { BunDriver } from "./driver.ts";
+import type { BunDialectConfig } from "./types.ts";
+import { freeze } from "./utils.ts";
 
-export class PostgresJSDialect implements Dialect {
-  readonly #config: PostgresJSDialectConfig
+export class BunDialect implements Dialect {
+  readonly #config: BunDialectConfig;
 
-  constructor(config: PostgresJSDialectConfig) {
-    this.#config = freeze({...config})
+  constructor(config: BunDialectConfig) {
+    this.#config = freeze({ ...config });
   }
 
   createAdapter(): DialectAdapter {
-    return new PostgresAdapter()
+    return new PostgresAdapter();
   }
 
   createDriver(): Driver {
-    return new PostgresJSDriver(this.#config)
+    return new BunDriver(this.#config);
   }
 
-  createIntrospector(db: Kysely<any>): DatabaseIntrospector {
-    return new PostgresIntrospector(db)
+  createIntrospector(db: Kysely<unknown>): DatabaseIntrospector {
+    return new PostgresIntrospector(db);
   }
 
   createQueryCompiler(): QueryCompiler {
-    return new PostgresQueryCompiler()
+    return new PostgresQueryCompiler();
   }
 }

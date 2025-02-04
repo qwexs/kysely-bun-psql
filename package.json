@@ -1,17 +1,18 @@
 {
-  "name": "kysely-postgres-js",
-  "version": "2.0.0",
+  "name": "kysely-bun-psql",
+  "version": "0.0.1",
   "description": "Kysely dialect for PostgreSQL using the Postgres.js client",
-  "repository": "https://github.com/igalklebanov/kysely-postgres-js.git",
-  "homepage": "https://github.com/igalklebanov/kysely-postgres-js",
-  "author": "Igal Klebanov <igalklebanov@gmail.com>",
+  "repository": "https://github.com/nvsd/kysely-bun-psql",
+  "homepage": "https://github.com/nvsd/kysely-bun-psql",
+  "author": "Zack Novosad <zachary.novosad@gmail.com>",
   "license": "MIT",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
   "exports": {
     ".": {
-      "import": "./dist/esm/index.js",
-      "require": "./dist/cjs/index.js"
+      "bun": "./dist/index.js",
+      "require": "./dist/index.js",
+      "import": "./dist/index.js"
     }
   },
   "files": [
@@ -19,53 +20,31 @@
   ],
   "keywords": [
     "kysely",
-    "postgres",
-    "postgres.js",
+    "bun",
+    "psql",
     "postgresql",
     "dialect"
   ],
   "scripts": {
-    "build": "tsup && node ./scripts/dist-fix.js",
-    "clean": "rm -rf dist",
+    "build": "bun --bun run build.config.ts",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
-    "lint": "eslint src --ext .ts",
-    "prepack": "pnpm run lint && pnpm run build",
-    "test:nodejs": "mocha ./tests/nodejs",
+    "lint": "eslint src",
+    "prepack": "bun --bun run lint && bun --bun build",
+    "test": "bun --bun test --preload ./src/tests/setup.ts",
     "type-check": "tsc --noEmit"
   },
   "peerDependencies": {
-    "kysely": ">= 0.24.0 < 1",
-    "postgres": ">= 3.4.0 < 4"
+    "kysely": ">= 0.24.0 < 1"
   },
   "devDependencies": {
-    "@tsconfig/node20": "^20.1.2",
-    "@types/chai": "^4.3.12",
-    "@types/chai-subset": "^1.3.5",
-    "@types/mocha": "^10.0.10",
-    "@types/mocha-each": "^2.0.4",
-    "@types/node": "^22.12.0",
-    "@typescript-eslint/eslint-plugin": "^7.8.0",
-    "@typescript-eslint/parser": "^7.10.0",
-    "@typescript-eslint/eslint-plugin": "^8.22.0",
-    "@typescript-eslint/parser": "^8.22.0",
-    "chai": "^4.4.1",
-    "chai-subset": "^1.6.0",
-    "esbuild": "^0.24.2",
-    "esbuild-runner": "^2.2.2",
-    "eslint": "^8.57.1",
-    "eslint-config-prettier": "^9.1.0",
-    "eslint-plugin-import": "^2.31.0",
-    "eslint-plugin-prettier": "^5.2.3",
+    "@eslint/js": "^9.19.0",
+    "bun-types": "latest",
+    "eslint": "^9.19.0",
     "kysely": "^0.27.5",
-    "mocha": "^11.1.0",
-    "mocha-each": "^2.0.1",
-    "postgres": "^3.4.5",
     "prettier": "^3.4.2",
-    "prettier-plugin-organize-imports": "^4.1.0",
-    "prettier-plugin-pkg": "^0.18.1",
-    "tsup": "^8.3.6",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.23.0"
   },
   "sideEffects": false
 }

@@ -1,81 +1,86 @@
-# kysely-postgres-js
+# kysely-bun-psql
 
 ![Powered by TypeScript](https://img.shields.io/badge/powered%20by-typescript-blue.svg)
 
-[Kysely](https://github.com/koskimas/kysely) dialect for [PostgreSQL](https://www.postgresql.org/) using the [Postgres.js](https://github.com/porsager/postgres) client library under the hood (version >= 3.4).
+> ⚠️ **Beta Status**: This package is currently in beta. While it's functional and tested, you may encounter bugs or missing features. Please [open an issue](https://github.com/zacknovosad/kysely-bun-psql/issues) if you find any problems or have feature requests. Pull requests are welcome!
 
-This dialect should not be confused with Kysely's built-in PostgreSQL dialect, which uses the [pg](https://github.com/brianc/node-postgres) client library instead.
+[Kysely](https://github.com/koskimas/kysely) dialect for [PostgreSQL](https://www.postgresql.org/) using Bun's built-in SQL client under the hood.
+
+This dialect provides a fast, native PostgreSQL client for Kysely when running in Bun, leveraging [Bun's built-in SQL support](https://bun.sh/docs/api/sql) introduced in v1.2.
 
 ## Installation
 
-#### NPM 7+
-
 ```bash
-npm i kysely-postgres-js
-```
-
-#### NPM <7
-
-```bash
-npm i kysely-postgres-js kysely postgres
-```
-
-#### Yarn
-
-```bash
-yarn add kysely-postgres-js kysely postgres
-```
-
-#### PNPM
-
-```bash
-pnpm add kysely-postgres-js kysely postgres
-```
-
-### Deno
-
-This package uses/extends some [Kysely](https://github.com/koskimas/kysely) types and classes, which are imported using its NPM package name -- not a relative file path or CDN url. It also uses [Postgres.js] which is imported using its NPM package name -- not a relative file path or CDN url.
-
-To fix that, add an [`import_map.json`](https://deno.land/manual@v1.26.1/linking_to_external_code/import_maps) file.
-
-```json
-{
-  "imports": {
-    "kysely": "https://cdn.jsdelivr.net/npm/kysely@0.27.2/dist/esm/index.js",
-    "postgres": "https://deno.land/x/postgresjs@v3.4.3/mod.js"
-  }
-}
+bun add kysely-bun-psql
 ```
 
 ## Usage
 
-```ts
-import {type GeneratedAlways, Kysely} from 'kysely'
-import {PostgresJSDialect} from 'kysely-postgres-js'
-import postgres from 'postgres'
+```typescript
+import { Kysely, type Generated } from "kysely";
+import { BunDialect } from "kysely-bun-psql";
 
 interface Database {
   person: {
-    id: GeneratedAlways<number>
-    first_name: string | null
-    last_name: string | null
-    age: number
-  }
+    id: Generated<number>;
+    first_name: string;
+    last_name: string | null;
+    created_at: Generated<Date>;
+  };
 }
 
 const db = new Kysely<Database>({
-  dialect: new PostgresJSDialect({
-    postgres: postgres({
-      database: 'test',
-      host: 'localhost',
-      max: 10,
-      port: 5434,
-      user: 'admin',
-    }),
+  dialect: new BunDialect({
+    url: "postgres://user:pass@localhost:5432/db",
   }),
-})
+});
+
+// Execute queries
+const person = await db
+  .selectFrom("person")
+  .selectAll()
+  .where("id", "=", 1)
+  .executeTakeFirst();
+
+// Use transactions
+await db.transaction().execute(async (trx) => {
+  await trx
+    .insertInto("person")
+    .values({
+      first_name: "John",
+      last_name: "Doe",
+    })
+    .execute();
+});
+
+// Clean up
+await db.destroy();
 ```
+
+## Configuration
+
+The dialect accepts all the same options as Bun's SQL client:
+
+```typescript
+interface BunDialectConfig {
+  url: string;
+  hostname?: string;
+  port?: number;
+  database?: string;
+  username?: string;
+  password?: string;
+  max?: number;
+  idleTimeout?: number;
+  maxLifetime?: number;
+  connectionTimeout?: number;
+  tls?: boolean;
+}
+```
+
+## Requirements
+
+- Bun v1.2 or higher
 
 ## License
 
-MIT License, see `LICENSE`
+MIT License, see \`LICENSE\`

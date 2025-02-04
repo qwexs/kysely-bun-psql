@@ -1,5 +1,5 @@
-export * from './connection.js'
-export * from './dialect.js'
-export * from './driver.js'
-export * from './errors.js'
-export type * from './types.js'
+export * from "./connection.ts";
+export * from "./dialect.ts";
+export * from "./driver.ts";
+export * from "./errors.ts";
+export type * from "./types.ts";

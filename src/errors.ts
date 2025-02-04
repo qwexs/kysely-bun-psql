@@ -1,6 +1,6 @@
-export class PostgresJSDialectError extends Error {
+export class BunDialectError extends Error {
   constructor(message: string) {
-    super(message)
-    this.name = 'PostgresJSDialectError'
+    super(message);
+    this.name = "BunDialectError";
   }
 }
