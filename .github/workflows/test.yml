@@ -10,21 +10,6 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres
-        env:
-          POSTGRES_DB: test
-          POSTGRES_USER: admin
-          POSTGRES_HOST_AUTH_METHOD: trust
-        ports:
-          - 5434:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
     steps:
       - uses: actions/checkout@v4
 
@@ -46,6 +31,18 @@ jobs:
       - name: Install dependencies
         run: bun install
 
+      - name: Start PostgreSQL
+        run: docker compose up -d
+
+      - name: Wait for PostgreSQL
+        run: |
+          timeout 30s bash -c '
+          until docker compose exec -T postgres pg_isready -U admin -h localhost; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          '
+
       - name: Run type check
         run: bun run type-check
 
@@ -56,3 +53,7 @@ jobs:
         run: bun run test
         env:
           DATABASE_URL: postgres://admin@localhost:5434/test
+
+      - name: Stop PostgreSQL
+        if: always()
+        run: docker compose down
