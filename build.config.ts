@@ -1,3 +1,5 @@
+import { $ } from "bun";
+
 await Bun.build({
   entrypoints: ["src/index.ts"],
   outdir: "dist",
@@ -7,3 +9,5 @@ await Bun.build({
   external: ["bun", "kysely"],
   root: "./src",
 });
+
+await $`tsc --project tsconfig.dts.json`;

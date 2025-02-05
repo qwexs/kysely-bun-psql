@@ -1,8 +1,8 @@
 import type { Driver, TransactionSettings } from "kysely";
 import { SQL } from "bun";
-import { BunConnection } from "./connection.ts";
-import type { BunDialectConfig } from "./types.ts";
-import { freeze } from "./utils.ts";
+import { BunConnection } from "./connection";
+import type { BunDialectConfig } from "./types";
+import { freeze } from "./utils";
 
 export class BunDriver implements Driver {
   readonly #config: BunDialectConfig;

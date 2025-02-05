@@ -5,16 +5,6 @@ export default tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.recommended,
   {
-    languageOptions: {
-      parserOptions: {
-        projectService: {
-          allowDefaultProject: ["eslint.config.mjs", "build.config.ts"],
-        },
-        tsconfigRootDir: import.meta.dirname,
-      },
-    },
-  },
-  {
     ignores: [
       "./README.md",
       "./tsconfig.json",

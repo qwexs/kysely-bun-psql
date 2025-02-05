@@ -1,4 +1,4 @@
-import type { BunDialectConfig } from "../index";
+import type { BunDialectConfig } from "../src/index";
 import { beforeAll, afterAll } from "bun:test";
 
 // Test database configuration matching Docker settings

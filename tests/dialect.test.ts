@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { Kysely, sql, type Generated } from "kysely";
-import { BunDialect } from "..";
+import { BunDialect } from "../src/index";
 
 // Define our test database schema
 interface TestDatabase {

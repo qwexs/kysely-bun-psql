@@ -68,7 +68,7 @@ export class BunConnection implements DatabaseConnection {
     await this.executeQuery(CompiledQuery.raw("rollback"));
   }
 
-  async *streamQuery() {
+  async *streamQuery<R>(): AsyncGenerator<QueryResult<R>> {
     throw new BunDialectError("streamQuery is not supported");
   }
 }

@@ -10,9 +10,9 @@ import {
   type QueryCompiler,
 } from "kysely";
 
-import { BunDriver } from "./driver.ts";
-import type { BunDialectConfig } from "./types.ts";
-import { freeze } from "./utils.ts";
+import { BunDriver } from "./driver";
+import type { BunDialectConfig } from "./types";
+import { freeze } from "./utils";
 
 export class BunDialect implements Dialect {
   readonly #config: BunDialectConfig;
