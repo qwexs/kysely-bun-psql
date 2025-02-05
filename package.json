@@ -6,13 +6,18 @@
   "homepage": "https://github.com/nvsd/kysely-bun-psql",
   "author": "Zack Novosad <zachary.novosad@gmail.com>",
   "license": "MIT",
-  "main": "./dist/cjs/index.js",
-  "module": "./dist/esm/index.js",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "exports": {
     ".": {
       "bun": "./dist/index.js",
       "require": "./dist/index.js",
-      "import": "./dist/index.js"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     }
   },
   "files": [
@@ -32,7 +37,10 @@
     "lint": "eslint src",
     "prepack": "bun --bun run lint && bun --bun build",
     "test": "bun --bun test --preload ./src/tests/setup.ts",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "version:patch": "npm version patch -m 'Release v%s'",
+    "version:minor": "npm version minor -m 'Release v%s'",
+    "version:major": "npm version major -m 'Release v%s'"
   },
   "peerDependencies": {
     "kysely": ">= 0.24.0 < 1"
