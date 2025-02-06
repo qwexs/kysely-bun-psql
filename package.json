@@ -36,7 +36,7 @@
     "fmt:check": "prettier --check .",
     "lint": "eslint src",
     "prepack": "bun --bun run lint && bun --bun build",
-    "test": "bun --bun test --preload ./src/tests/setup.ts",
+    "test": "bun --bun test --preload ./tests/setup.ts",
     "type-check": "tsc --noEmit",
     "version:patch": "npm version patch -m 'Release v%s'",
     "version:minor": "npm version minor -m 'Release v%s'",
