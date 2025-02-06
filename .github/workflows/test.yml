@@ -50,7 +50,7 @@ jobs:
         run: bun run lint
 
       - name: Run tests
-        run: bun run test
+        run: bun run test:ci
         env:
           DATABASE_URL: postgres://admin@localhost:5434/test
 

@@ -37,6 +37,7 @@
     "lint": "eslint src",
     "prepack": "bun --bun run lint && bun --bun build",
     "test": "bun --bun test --preload ./tests/setup.ts",
+    "test:ci": "bun --bun test",
     "type-check": "tsc --noEmit",
     "version:patch": "npm version patch -m 'Release v%s'",
     "version:minor": "npm version minor -m 'Release v%s'",
