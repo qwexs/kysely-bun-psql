@@ -37,14 +37,6 @@ export class BunConnection implements DatabaseConnection {
       compiledQuery.parameters.slice(),
     )) as SQLQuery;
 
-    //console.log("result", result);
-    // result [
-    //   {
-    //     num: 1,
-    //     str: "test",
-    //   }, statement: undefined, command: "SELECT", count: 1
-    // ]
-
     // @ts-expect-error ??? I truly have no clue what SQLQuery is but this works
     const rows = Array.from(result.values()) as R[];
 

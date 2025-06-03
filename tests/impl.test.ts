@@ -2,7 +2,7 @@ import { CompiledQuery } from "kysely";
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 
 import { BunDriver } from "../src/driver";
-import { BunConnection } from "../src/connection";
+import type { BunConnection } from "../src/connection";
 
 const TEST_CONFIG = {
   url: "postgres://admin@localhost:5434/test",

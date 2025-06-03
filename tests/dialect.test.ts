@@ -81,30 +81,42 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
   });
 
   test("should delete a person", async () => {
-    // Insert test data
-    const inserted = await db
-      .insertInto("person")
-      .values({
-        first_name: "Bob",
-        last_name: "Wilson",
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
+    // Use a transaction to ensure all queries happen in the same connection
+    await db.transaction().execute(async (trx) => {
+      // Insert a person
+      const inserted = await trx
+        .insertInto("person")
+        .values({
+          first_name: "Bob",
+          last_name: "Wilson",
+        })
+        .returningAll()
+        .executeTakeFirstOrThrow();
 
-    // Delete the person
-    const deleted = await db
-      .deleteFrom("person")
-      .where("id", "=", inserted.id)
-      .returningAll()
-      .executeTakeFirstOrThrow();
+      // Verify the person exists
+      const verifyInsert = await trx
+        .selectFrom("person")
+        .selectAll()
+        .where("id", "=", inserted.id)
+        .executeTakeFirst();
 
-    expect(deleted).toEqual(inserted);
+      expect(verifyInsert).toBeDefined();
+
+      // Delete the person
+      const deleted = await trx
+        .deleteFrom("person")
+        .where("id", "=", inserted.id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+
+      expect(deleted).toEqual(inserted);
+    });
 
     // Verify person is deleted
     const person = await db
       .selectFrom("person")
       .selectAll()
-      .where("id", "=", inserted.id)
+      .where("first_name", "=", "Bob")
       .executeTakeFirst();
 
     expect(person).toBeUndefined();
