@@ -38,7 +38,7 @@
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",
     "lint": "eslint src",
-    "prepack": "bun --bun run lint && bun --bun build",
+    "prepack": "bun --bun run lint && bun --bun run build",
     "test": "bun --bun test --preload ./tests/setup.ts",
     "test:ci": "bun --bun test",
     "type-check": "tsc --noEmit",
