@@ -1,6 +1,5 @@
 {
   "name": "@ratiu5/kysely-bun-psql",
-  "private": "false",
   "version": "0.0.3",
   "description": "Kysely dialect for PostgreSQL using the Bun's SQL client",
   "repository": {
