@@ -11,7 +11,7 @@ This dialect provides a fast, native PostgreSQL client for Kysely when running i
 ## Installation
 
 ```bash
-bun add kysely-bun-psql
+bun add @ratiu5/kysely-bun-psql
 ```
 
 ## Usage
