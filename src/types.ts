@@ -1,4 +1,4 @@
-import { SQL } from "bun";
+import type { SQL } from "bun";
 
 export type BunDialectConfig = {
   // Required

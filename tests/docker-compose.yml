@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: "postgres"
+    image: postgres:latest
     environment:
       POSTGRES_DB: test
       POSTGRES_USER: admin
