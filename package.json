@@ -1,6 +1,6 @@
 {
   "name": "@ratiu5/kysely-bun-psql",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Kysely dialect for PostgreSQL using the Bun's SQL client",
   "repository": {
     "type": "git",
@@ -53,7 +53,7 @@
     "@eslint/js": "^9.28.0",
     "@types/bun": "latest",
     "eslint": "^9.28.0",
-    "kysely": "^0.28.2",
+    "kysely": "^0.28.5",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.33.1"

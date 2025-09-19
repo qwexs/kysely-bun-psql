@@ -93,6 +93,9 @@ async function setupTestPersonTable() {
         id SERIAL PRIMARY KEY,
         first_name VARCHAR NOT NULL,
         last_name VARCHAR,
+        tags TEXT[],
+        number_tags INTEGER[],
+        nullable_string_tags TEXT[],
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `;

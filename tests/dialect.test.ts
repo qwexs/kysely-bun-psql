@@ -9,6 +9,9 @@ interface TestDatabase {
     first_name: string;
     last_name: string | null;
     created_at: Generated<Date>;
+    tags?: string[];
+    number_tags?: number[];
+    nullable_string_tags?: (string | null)[];
   };
 }
 
@@ -179,5 +182,115 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .executeTakeFirst();
 
     expect(person).toBeUndefined();
+  });
+
+  test("should insert and select string array", async () => {
+    // Тестовые данные для массива строк
+    const testTags = ["javascript", "typescript", "database", "kysely"];
+
+    // Вставляем запись с массивом строк
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "Array",
+        last_name: "Test",
+        tags: testTags,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // Проверяем, что массив был корректно вставлен
+    expect(insertResult.first_name).toBe("Array");
+    expect(insertResult.last_name).toBe("Test");
+    expect(insertResult.tags).toEqual(testTags);
+    expect(Array.isArray(insertResult.tags)).toBe(true);
+
+    // Выбираем запись и проверяем массив
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.tags).toEqual(testTags);
+    expect(person!.tags!.length).toBe(testTags.length);
+    expect(person!.tags![0]).toBe("javascript");
+    expect(person!.tags![3]).toBe("kysely");
+  });
+
+  test("should insert and select number array", async () => {
+    const testNumbers = [1, 2, 3, 100];
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "NumberArray",
+        last_name: "Test",
+        number_tags: testNumbers,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(Array.from(insertResult.number_tags!)).toEqual(testNumbers);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(Array.from(person!.number_tags!)).toEqual(testNumbers);
+  });
+
+  test("should insert and select array with null values", async () => {
+    const testTags = ["one", null, "three"];
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "NullableArray",
+        last_name: "Test",
+        nullable_string_tags: testTags,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(insertResult.nullable_string_tags).toEqual(testTags);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.nullable_string_tags).toEqual(testTags);
+  });
+
+  test("should insert and select an empty array", async () => {
+    const testTags: string[] = [];
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "EmptyArray",
+        last_name: "Test",
+        tags: testTags,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(insertResult.tags).toEqual(testTags);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.tags).toEqual(testTags);
   });
 });

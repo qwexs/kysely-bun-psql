@@ -7,6 +7,7 @@ import {
 } from "kysely";
 import { BunDialectError } from "./errors.js";
 import type { SQL, SQLQuery } from "bun";
+import { transformValue } from "./utils.js";
 
 export class BunConnection implements DatabaseConnection {
   #reservedConnection: SQL;
@@ -32,9 +33,11 @@ export class BunConnection implements DatabaseConnection {
   }
 
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
+    const parameters = compiledQuery.parameters.map(transformValue);
+
     const result = (await this.#reservedConnection.unsafe(
       compiledQuery.sql,
-      compiledQuery.parameters.slice(),
+      parameters,
     )) as SQLQuery;
 
     // @ts-expect-error ??? I truly have no clue what SQLQuery is but this works
