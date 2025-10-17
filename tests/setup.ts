@@ -96,6 +96,8 @@ async function setupTestPersonTable() {
         tags TEXT[],
         number_tags INTEGER[],
         nullable_string_tags TEXT[],
+        metadata JSONB,
+        items JSONB[],
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `;

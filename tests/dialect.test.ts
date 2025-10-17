@@ -12,7 +12,17 @@ interface TestDatabase {
     tags?: string[];
     number_tags?: number[];
     nullable_string_tags?: (string | null)[];
+    metadata?: TestItem;
+    items?: TestItem[];
   };
+}
+
+// Define a simple object structure for testing
+interface TestItem {
+  type: string;
+  value: number;
+  active: boolean;
+  label?: string;
 }
 
 describe("Bun PostgreSQL Dialect with Kysely", () => {
@@ -185,10 +195,10 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
   });
 
   test("should insert and select string array", async () => {
-    // Тестовые данные для массива строк
+    // Test data for string array
     const testTags = ["javascript", "typescript", "database", "kysely"];
 
-    // Вставляем запись с массивом строк
+    // Insert a record with string array
     const insertResult = await db
       .insertInto("person")
       .values({
@@ -199,13 +209,13 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // Проверяем, что массив был корректно вставлен
+    // Verify the array was inserted correctly
     expect(insertResult.first_name).toBe("Array");
     expect(insertResult.last_name).toBe("Test");
     expect(insertResult.tags).toEqual(testTags);
     expect(Array.isArray(insertResult.tags)).toBe(true);
 
-    // Выбираем запись и проверяем массив
+    // Select the record and verify the array
     const person = await db
       .selectFrom("person")
       .selectAll()
@@ -292,5 +302,172 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
 
     expect(person).toBeDefined();
     expect(person!.tags).toEqual(testTags);
+  });
+
+  test("should insert and select a simple object", async () => {
+    const testMetadata: TestItem = {
+      type: "sample",
+      value: 42,
+      active: true,
+      label: "test item",
+    };
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "Object",
+        last_name: "Test",
+        metadata: testMetadata,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(insertResult.metadata).toEqual(testMetadata);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.metadata).toEqual(testMetadata);
+  });
+
+  test("should insert and select object without optional fields", async () => {
+    const testMetadata: Omit<TestItem, "label"> = {
+      type: "minimal",
+      value: 100,
+      active: false,
+    };
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "Minimal",
+        last_name: "Object",
+        metadata: testMetadata,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(insertResult.metadata).toEqual(testMetadata);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.metadata).toEqual(testMetadata);
+  });
+
+  test("should insert and select array of objects", async () => {
+    const testItems: TestItem[] = [
+      {
+        type: "alpha",
+        value: 1,
+        active: true,
+        label: "first item",
+      },
+      {
+        type: "beta",
+        value: 2,
+        active: false,
+      },
+      {
+        type: "gamma",
+        value: 3,
+        active: true,
+        label: "third item",
+      },
+    ];
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "Array",
+        last_name: "Objects",
+        items: testItems,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(insertResult.items).toEqual(testItems);
+    expect(Array.isArray(insertResult.items)).toBe(true);
+    expect(insertResult.items!.length).toBe(3);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.items).toEqual(testItems);
+    expect(person!.items![0].type).toBe("alpha");
+    expect(person!.items![1].active).toBe(false);
+    expect(person!.items![2].value).toBe(3);
+  });
+
+  test("should insert and select empty array of objects", async () => {
+    const testItems: TestItem[] = [];
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "Empty",
+        last_name: "Objects",
+        items: testItems,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(insertResult.items).toEqual(testItems);
+    expect(Array.isArray(insertResult.items)).toBe(true);
+    expect(insertResult.items!.length).toBe(0);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.items).toEqual(testItems);
+  });
+
+  test("should insert and select mixed array with objects and primitives", async () => {
+    const testArray = [
+      "string_value",
+      42,
+      true,
+      { type: "nested", value: 99 },
+      null,
+    ] as const;
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "Mixed",
+        last_name: "Array",
+        tags: testArray as unknown as string[],
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    // Mixed arrays should be handled correctly
+    expect(insertResult.tags).toBeDefined();
+    expect(Array.isArray(insertResult.tags)).toBe(true);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.tags).toBeDefined();
   });
 });
