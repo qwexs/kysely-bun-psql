@@ -22,8 +22,8 @@ export function transformValue(value: unknown): unknown {
 
 /**
  * Create PostgreSQL ARRAY literal from any array
- * Converts ["a", "b", 1] to ARRAY['a','b',1]
- * Handles nested arrays and mixed types
+ * Converts ["a", "b", 1] to {"a","b","1"}
+ * Handles nested arrays, objects, and mixed types with proper quoting
  */
 function createPostgresArray(arr: unknown[]): string {
   const serialized = arr
@@ -32,21 +32,24 @@ function createPostgresArray(arr: unknown[]): string {
         return "NULL";
       }
       if (typeof item === "string") {
-        // Escape single quotes for PostgreSQL
-        const escaped = item.replace(/'/g, "''");
-        return `'${escaped}'`;
+        // Экранируем обратные слэши и кавычки для PostgreSQL
+        const escaped = item.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        return `"${escaped}"`;
       }
-      if (typeof item === "object") {
-        // Objects in arrays - serialize as JSON string
-        return `'${JSON.stringify(item).replace(/'/g, "''")}'`;
+      if (typeof item === "object" && !Array.isArray(item)) {
+        // Объекты в массивах - сериализуем в JSON и экранируем правильно
+        const jsonString = JSON.stringify(item);
+        // Сначала экранируем обратные слэши, затем двойные кавычки для PostgreSQL
+        const escaped = jsonString.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+        return `"${escaped}"`;
       }
       if (Array.isArray(item)) {
-        // Nested arrays - recursively handle
+        // Вложенные массивы - рекурсивная обработка
         return createPostgresArray(item);
       }
-      // Numbers, booleans, etc.
+      // Числа, булевы значения и т.д. - передаем как есть для PostgreSQL
       return String(item);
     })
     .join(",");
-  return `ARRAY[${serialized}]`;
+  return `{${serialized}}`;
 }
