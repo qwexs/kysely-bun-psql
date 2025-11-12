@@ -1,6 +1,6 @@
 {
   "name": "@ratiu5/kysely-bun-psql",
-  "version": "0.0.4",
+  "version": "0.0.36",
   "description": "Kysely dialect for PostgreSQL using the Bun's SQL client",
   "repository": {
     "type": "git",
@@ -40,6 +40,7 @@
     "lint": "eslint src",
     "prepack": "bun --bun run lint && bun --bun run build",
     "test": "bun --bun test --preload ./tests/setup.ts",
+    "test:dialect": "bun test tests/dialect.test.ts",
     "test:ci": "bun --bun test",
     "type-check": "tsc --noEmit",
     "version:patch": "npm version patch -m 'Release v%s'",

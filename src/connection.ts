@@ -6,7 +6,7 @@ import {
   type TransactionSettings,
 } from "kysely";
 import { BunDialectError } from "./errors.js";
-import type { SQL, SQLQuery } from "bun";
+import type { SQL } from "bun";
 import { transformValue } from "./utils.js";
 
 export class BunConnection implements DatabaseConnection {
@@ -35,15 +35,13 @@ export class BunConnection implements DatabaseConnection {
   async executeQuery<R>(compiledQuery: CompiledQuery): Promise<QueryResult<R>> {
     const parameters = compiledQuery.parameters.map(transformValue);
 
-    const result = (await this.#reservedConnection.unsafe(
+    const result = await this.#reservedConnection.unsafe(
       compiledQuery.sql,
       parameters,
-    )) as SQLQuery;
+    );
 
-    // @ts-expect-error ??? I truly have no clue what SQLQuery is but this works
     const rows = Array.from(result.values()) as R[];
 
-    // @ts-expect-error ??? I truly have no clue what SQLQuery is but this works
     if (["INSERT", "UPDATE", "DELETE"].includes(result.command)) {
       const numAffectedRows = BigInt(rows.length);
 
