@@ -12,8 +12,7 @@ interface TestDatabase {
     tags?: string[];
     number_tags?: number[];
     nullable_string_tags?: (string | null)[];
-    metadata?: TestItem;
-    items?: TestItem[];
+    metadata?: TestItem[];
   };
 }
 
@@ -23,6 +22,16 @@ interface TestItem {
   value: number;
   active: boolean;
   label?: string;
+  items?: SubItem[];
+}
+
+// Define sub-item structure for testing
+interface SubItem {
+  category: string;
+  start_position: number;
+  end_position: number;
+  location: string;
+  description: string;
 }
 
 describe("Bun PostgreSQL Dialect with Kysely", () => {
@@ -38,7 +47,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
   });
 
   afterAll(async () => {
-    await db.destroy();
+    // await db.destroy();
   });
 
   test("should insert and select a person", async () => {
@@ -317,12 +326,12 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .values({
         first_name: "Object",
         last_name: "Test",
-        metadata: testMetadata,
+        metadata: [testMetadata],
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    expect(insertResult.metadata).toEqual(testMetadata);
+    expect(insertResult.metadata).toEqual([testMetadata]);
 
     const person = await db
       .selectFrom("person")
@@ -331,7 +340,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .executeTakeFirst();
 
     expect(person).toBeDefined();
-    expect(person!.metadata).toEqual(testMetadata);
+    expect(person!.metadata).toEqual([testMetadata]);
   });
 
   test("should insert and select object without optional fields", async () => {
@@ -346,12 +355,12 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .values({
         first_name: "Minimal",
         last_name: "Object",
-        metadata: testMetadata,
+        metadata: [testMetadata],
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    expect(insertResult.metadata).toEqual(testMetadata);
+    expect(insertResult.metadata).toEqual([testMetadata]);
 
     const person = await db
       .selectFrom("person")
@@ -360,106 +369,83 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .executeTakeFirst();
 
     expect(person).toBeDefined();
-    expect(person!.metadata).toEqual(testMetadata);
+    expect(person!.metadata).toEqual([testMetadata]);
   });
 
-  test("should insert and select array of objects", async () => {
-    const testItems: TestItem[] = [
-      {
-        type: "alpha",
-        value: 1,
-        active: true,
-        label: "first item",
-      },
-      {
-        type: "beta",
-        value: 2,
-        active: false,
-      },
-      {
-        type: "gamma",
-        value: 3,
-        active: true,
-        label: "third item",
-      },
-    ];
+  test("should insert and select object with nested array", async () => {
+    // Create test object with nested array of items
+    const testMetadata: TestItem = {
+      type: "resource",
+      value: 1,
+      active: true,
+      label: "Test resource",
+      items: [
+        {
+          category: "PRIMARY",
+          start_position: 32400,
+          end_position: 36000,
+          location: "Room A",
+          description: "First group",
+        },
+        {
+          category: "SECONDARY",
+          start_position: 32400,
+          end_position: 36000,
+          location: "Room A",
+          description: "Second group",
+        },
+        {
+          category: "TERTIARY",
+          start_position: 32400,
+          end_position: 36000,
+          location: "Room A",
+          description: "Third group",
+        },
+      ],
+    };
 
+    // Save object with nested array in metadata field (JSONB[] type)
     const insertResult = await db
       .insertInto("person")
       .values({
-        first_name: "Array",
-        last_name: "Objects",
-        items: testItems,
+        first_name: "JSONB",
+        last_name: "NestedArray",
+        metadata: [testMetadata],
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    expect(insertResult.items).toEqual(testItems);
-    expect(Array.isArray(insertResult.items)).toBe(true);
-    expect(insertResult.items!.length).toBe(3);
+    // Verify that this is an array of objects
+    expect(Array.isArray(insertResult.metadata)).toBe(true);
+    expect(insertResult.metadata).toEqual([testMetadata]);
 
+    // Select the record and verify
     const person = await db
       .selectFrom("person")
       .selectAll()
       .where("id", "=", insertResult.id)
       .executeTakeFirst();
 
-    expect(person).toBeDefined();
-    expect(person!.items).toEqual(testItems);
-    expect(person!.items![0].type).toBe("alpha");
-    expect(person!.items![1].active).toBe(false);
-    expect(person!.items![2].value).toBe(3);
+    // Verify that this is an array of objects with the correct structure
+    expect(Array.isArray(person!.metadata)).toBe(true);
+    expect(person!.metadata).toEqual([testMetadata]);
   });
 
-  test("should insert and select empty array of objects", async () => {
-    const testItems: TestItem[] = [];
+  test("should insert and select empty array in JSONB column", async () => {
+    const emptyArray: TestItem[] = [];
 
     const insertResult = await db
       .insertInto("person")
       .values({
-        first_name: "Empty",
-        last_name: "Objects",
-        items: testItems,
-      })
-      .returningAll()
-      .executeTakeFirstOrThrow();
-
-    expect(insertResult.items).toEqual(testItems);
-    expect(Array.isArray(insertResult.items)).toBe(true);
-    expect(insertResult.items!.length).toBe(0);
-
-    const person = await db
-      .selectFrom("person")
-      .selectAll()
-      .where("id", "=", insertResult.id)
-      .executeTakeFirst();
-
-    expect(person).toBeDefined();
-    expect(person!.items).toEqual(testItems);
-  });
-
-  test("should insert and select mixed array with objects and primitives", async () => {
-    const testArray = [
-      "string_value",
-      42,
-      true,
-      { type: "nested", value: 99 },
-      null,
-    ] as const;
-
-    const insertResult = await db
-      .insertInto("person")
-      .values({
-        first_name: "Mixed",
+        first_name: "EmptyJSONB",
         last_name: "Array",
-        tags: testArray as unknown as string[],
+        metadata: emptyArray,
       })
       .returningAll()
       .executeTakeFirstOrThrow();
 
-    // Mixed arrays should be handled correctly
-    expect(insertResult.tags).toBeDefined();
-    expect(Array.isArray(insertResult.tags)).toBe(true);
+    expect(Array.isArray(insertResult.metadata)).toBe(true);
+    expect(insertResult.metadata).toEqual(emptyArray);
 
     const person = await db
       .selectFrom("person")
@@ -468,6 +454,41 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .executeTakeFirst();
 
     expect(person).toBeDefined();
-    expect(person!.tags).toBeDefined();
+    expect(Array.isArray(person!.metadata)).toBe(true);
+    expect(person!.metadata).toEqual(emptyArray);
+  });
+
+  test("should handle empty nested array within object", async () => {
+    const testMetadata: TestItem = {
+      type: "resource",
+      value: 2,
+      active: false,
+      items: [], // Empty array of items
+    };
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "EmptyNested",
+        last_name: "Array",
+        metadata: [testMetadata],
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(Array.isArray(insertResult.metadata)).toBe(true);
+    expect(insertResult.metadata).toEqual([testMetadata]);
+    expect(insertResult.metadata![0].items).toEqual([]);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(Array.isArray(person!.metadata)).toBe(true);
+    expect(person!.metadata).toEqual([testMetadata]);
+    expect(person!.metadata![0].items).toEqual([]);
   });
 });

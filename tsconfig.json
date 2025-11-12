@@ -24,7 +24,7 @@
     "noPropertyAccessFromIndexSignature": true,
 
     // Types
-    "types": ["bun-types"],
+    "types": ["bun"],
 
     "rootDirs": ["src", "tests"],
     "outDir": "dist"

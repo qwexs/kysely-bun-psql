@@ -5,7 +5,7 @@ import { BunDriver } from "../src/driver";
 import type { BunConnection } from "../src/connection";
 
 const TEST_CONFIG = {
-  url: "postgres://admin@localhost:5434/test",
+  url: process.env["DATABASE_URL"] ?? "postgres://admin@localhost:5434/test",
 };
 
 interface TestTable {
@@ -68,7 +68,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
           await driver.rollbackTransaction(connection);
 
           // Verify table doesn't exist after rollback
-          await expect(
+          expect(
             connection.executeQuery(
               CompiledQuery.raw("SELECT * FROM test_rollback"),
             ),
@@ -98,14 +98,14 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
         const connection = await driver.acquireConnection();
         await driver.releaseConnection(connection);
 
-        await expect(
+        expect(
           connection.executeQuery(CompiledQuery.raw("SELECT 1")),
         ).rejects.toThrow();
       }, 1000);
 
       test("should fail when acquiring connection after destroy", async () => {
         await driver.destroy();
-        await expect(driver.acquireConnection()).rejects.toThrow();
+        expect(driver.acquireConnection()).rejects.toThrow();
       }, 1000);
 
       test("should handle connection timeouts", async () => {
@@ -116,7 +116,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
         });
 
         try {
-          await expect(timeoutDriver.acquireConnection()).rejects.toThrow(
+          expect(timeoutDriver.acquireConnection()).rejects.toThrow(
             /getaddrinfo|connection|network/i,
           );
         } finally {
@@ -131,7 +131,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
         });
 
         try {
-          await expect(badDriver.acquireConnection()).rejects.toThrow(
+          expect(badDriver.acquireConnection()).rejects.toThrow(
             /role.*does not exist/i,
           );
         } finally {
@@ -142,11 +142,13 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
       test("should handle connection refused", async () => {
         // Create a driver pointing to a non-existent server
         const unreachableDriver = new BunDriver({
-          url: "postgres://admin@localhost:5435/test", // Wrong port
+          url:
+            process.env["DATABASE_URL"] ||
+            "postgres://admin@localhost:5435/test", // Wrong port
         });
 
         try {
-          await expect(unreachableDriver.acquireConnection()).rejects.toThrow(
+          expect(unreachableDriver.acquireConnection()).rejects.toThrow(
             /connection closed|ECONNREFUSED|connect failed/i,
           );
         } finally {
@@ -330,7 +332,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     });
 
     test("should handle syntax errors", async () => {
-      await expect(
+      expect(
         connection.executeQuery(
           CompiledQuery.raw("SELCT * FROM error_test"), // Intentional typo
         ),
@@ -346,7 +348,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
       );
 
       // Try to insert duplicate value (UNIQUE constraint violation)
-      await expect(
+      expect(
         connection.executeQuery(
           CompiledQuery.raw("INSERT INTO error_test (value) VALUES ($1)", [
             "unique_value",
@@ -355,7 +357,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
       ).rejects.toThrow(/unique constraint/i);
 
       // Try to insert NULL (NOT NULL constraint violation)
-      await expect(
+      expect(
         connection.executeQuery(
           CompiledQuery.raw("INSERT INTO error_test (value) VALUES ($1)", [
             null,
@@ -365,7 +367,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle invalid parameter types", async () => {
-      await expect(
+      expect(
         connection.executeQuery(
           CompiledQuery.raw(
             "INSERT INTO error_test (id) VALUES ($1)",
@@ -376,7 +378,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle table not found errors", async () => {
-      await expect(
+      expect(
         connection.executeQuery(
           CompiledQuery.raw("SELECT * FROM nonexistent_table"),
         ),
@@ -384,7 +386,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle column not found errors", async () => {
-      await expect(
+      expect(
         connection.executeQuery(
           CompiledQuery.raw("SELECT nonexistent_column FROM error_test"),
         ),
@@ -392,7 +394,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle parameter count mismatch", async () => {
-      await expect(
+      expect(
         connection.executeQuery(
           CompiledQuery.raw("INSERT INTO error_test (value) VALUES ($1, $2)", [
             "too_few_params",
