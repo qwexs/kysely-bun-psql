@@ -4,13 +4,14 @@
  * Strategy:
  * - Arrays of primitives (string, number, boolean, null): convert to PostgreSQL ARRAY syntax
  * - Arrays containing objects: convert to PostgreSQL array syntax for JSONB[] fields
- * - Objects: wrap in array and convert to PostgreSQL array syntax for JSONB[] fields
- * - Empty arrays: convert to empty PostgreSQL array syntax for JSONB[] fields
+ * - Objects: pass through as-is (Bun SQL handles JSONB serialization)
+ * - Empty arrays: convert to empty PostgreSQL array syntax
  * - Primitive values: pass through
  *
  * This approach supports:
  * - TEXT[], INTEGER[] columns with primitive values using PostgreSQL ARRAY syntax
- * - JSONB[] fields with single objects (wrapped), arrays of objects, or empty arrays
+ * - JSONB[] fields with arrays of objects
+ * - JSONB fields with single objects (handled natively by Bun SQL)
  * - Proper handling of Bun's limitations with array serialization
  */
 export function transformValue(value: unknown): unknown {
@@ -27,16 +28,9 @@ export function transformValue(value: unknown): unknown {
     } else {
       return createPostgresArray(value);
     }
-  } else if (
-    value !== null &&
-    typeof value === "object" &&
-    !Array.isArray(value)
-  ) {
-    // Single object - wrap in array and convert to JSON string for JSONB[]
-    return createJsonArrayString([value]);
   }
 
-  // Primitives - let Bun handle natively
+  // Objects and primitives - let Bun handle natively
   return value;
 }
 
