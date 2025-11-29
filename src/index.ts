@@ -3,3 +3,4 @@ export * from "./dialect";
 export * from "./driver";
 export * from "./errors";
 export type * from "./types";
+export { jsonbArray } from "./utils";

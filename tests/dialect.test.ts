@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { Kysely, sql, type Generated } from "kysely";
-import { BunDialect } from "../src/index";
+import { BunDialect, jsonbArray } from "../src/index";
 
 // Define our test database schema
 interface TestDatabase {
@@ -326,7 +326,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .values({
         first_name: "Object",
         last_name: "Test",
-        metadata: [testMetadata],
+        metadata: jsonbArray([testMetadata]),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -355,7 +355,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .values({
         first_name: "Minimal",
         last_name: "Object",
-        metadata: [testMetadata],
+        metadata: jsonbArray([testMetadata]),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -410,7 +410,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .values({
         first_name: "JSONB",
         last_name: "NestedArray",
-        metadata: [testMetadata],
+        metadata: jsonbArray([testMetadata]),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -439,7 +439,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .values({
         first_name: "EmptyJSONB",
         last_name: "Array",
-        metadata: emptyArray,
+        metadata: jsonbArray(emptyArray),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
@@ -471,7 +471,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       .values({
         first_name: "EmptyNested",
         last_name: "Array",
-        metadata: [testMetadata],
+        metadata: jsonbArray([testMetadata]),
       })
       .returningAll()
       .executeTakeFirstOrThrow();
