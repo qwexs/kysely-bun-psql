@@ -1,5 +1,3 @@
-import type { SQL } from "bun";
-
 export type BunDialectConfig = {
   // Required
   url: string;
@@ -19,18 +17,8 @@ export type BunDialectConfig = {
 
   // SSL/TLS options
   tls?: boolean;
-  // tls: {
-  //   rejectUnauthorized: true,
-  //   requestCert: true,
-  //   ca: "path/to/ca.pem",
-  //   key: "path/to/key.pem",
-  //   cert: "path/to/cert.pem",
-  //   checkServerIdentity(hostname, cert) {
-  //     ...
-  //   },
-  // },
 
   // Callbacks
-  onconnect?: (client: SQL) => void;
-  onclose?: (client: SQL) => void;
+  onconnect?: (err: Error | null) => void;
+  onclose?: (err: Error | null) => void;
 };

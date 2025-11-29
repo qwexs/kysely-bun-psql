@@ -63,17 +63,26 @@ The dialect accepts all the same options as Bun's SQL client:
 
 ```typescript
 interface BunDialectConfig {
+  // Connection
   url: string;
   hostname?: string;
   port?: number;
   database?: string;
   username?: string;
   password?: string;
-  max?: number;
-  idleTimeout?: number;
-  maxLifetime?: number;
-  connectionTimeout?: number;
+
+  // Connection pool
+  max?: number;              // Maximum connections in pool
+  idleTimeout?: number;      // Close idle connections after N seconds
+  maxLifetime?: number;      // Connection lifetime in seconds (0 = forever)
+  connectionTimeout?: number; // Timeout when establishing new connections
+
+  // SSL/TLS
   tls?: boolean;
+
+  // Callbacks
+  onconnect?: (err: Error | null) => void;
+  onclose?: (err: Error | null) => void;
 }
 ```
 

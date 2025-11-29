@@ -10,7 +10,21 @@ export class BunDriver implements Driver {
 
   constructor(config: BunDialectConfig) {
     this.#config = freeze({ ...config });
-    this.#sql = new SQL(this.#config.url);
+    this.#sql = new SQL({
+      url: this.#config.url,
+      hostname: this.#config.hostname,
+      port: this.#config.port,
+      database: this.#config.database,
+      username: this.#config.username,
+      password: this.#config.password,
+      max: this.#config.max,
+      idleTimeout: this.#config.idleTimeout,
+      maxLifetime: this.#config.maxLifetime,
+      connectionTimeout: this.#config.connectionTimeout,
+      tls: this.#config.tls,
+      onconnect: this.#config.onconnect,
+      onclose: this.#config.onclose,
+    });
   }
 
   async init(): Promise<void> {
