@@ -2,32 +2,32 @@
  * Transform values for PostgreSQL compatibility
  *
  * Strategy:
- * - Arrays of primitives (string, number, boolean, null): convert to PostgreSQL ARRAY syntax
- * - Arrays containing objects: convert to PostgreSQL array syntax for JSONB[] fields
+ * - Arrays of primitives (string, number, boolean): convert to PostgreSQL ARRAY syntax for TEXT[], INTEGER[] etc.
+ * - Arrays containing objects: pass through as-is (Bun SQL handles JSONB serialization)
  * - Objects: pass through as-is (Bun SQL handles JSONB serialization)
- * - Empty arrays: convert to empty PostgreSQL array syntax
  * - Primitive values: pass through
  *
  * This approach supports:
  * - TEXT[], INTEGER[] columns with primitive values using PostgreSQL ARRAY syntax
- * - JSONB[] fields with arrays of objects
- * - JSONB fields with single objects (handled natively by Bun SQL)
- * - Proper handling of Bun's limitations with array serialization
+ * - JSONB fields with objects or arrays (handled natively by Bun SQL)
+ *
+ * Note: For JSONB[] columns, use the jsonbArray() helper function.
  */
 export function transformValue(value: unknown): unknown {
   if (Array.isArray(value)) {
-    // Check if array contains any objects (excluding null and arrays)
+    // Check if array contains any objects (excluding null)
     const containsObjects = value.some((item) => {
       return item !== null && typeof item === "object" && !Array.isArray(item);
     });
 
-    // If array contains objects or is empty, convert to JSON string for JSONB[]
-    // Otherwise, convert to PostgreSQL ARRAY syntax for primitive array columns
-    if (containsObjects || value.length === 0) {
-      return createJsonArrayString(value);
-    } else {
-      return createPostgresArray(value);
+    // Arrays with objects - let Bun handle natively for JSONB columns
+    // For JSONB[] columns, user should use jsonbArray() helper
+    if (containsObjects) {
+      return value;
     }
+
+    // Arrays of primitives - convert to PostgreSQL ARRAY syntax
+    return createPostgresArray(value);
   }
 
   // Objects and primitives - let Bun handle natively
@@ -54,31 +54,36 @@ export function createPostgresArray(arr: unknown[]): string {
   return `{${serialized}}`;
 }
 
+export function freeze<T>(obj: T): Readonly<T> {
+  return Object.freeze(obj);
+}
+
 /**
- * Create PostgreSQL array syntax for JSONB[] fields
- * Converts arrays/objects to PostgreSQL array literal format: '{"json1","json2"}'
+ * Helper for JSONB[] columns.
+ * Converts an array of objects to PostgreSQL array literal format.
+ *
+ * Usage:
+ * ```typescript
+ * import { jsonbArray } from '@ratiu5/kysely-bun-psql';
+ *
+ * await db.insertInto('table')
+ *   .values({ items: jsonbArray([{ a: 1 }, { b: 2 }]) })
+ *   .execute();
+ * ```
  */
-function createJsonArrayString(arr: unknown[]): string {
+export function jsonbArray<T>(arr: T[]): T[] & string {
   if (arr.length === 0) {
-    return "{}";
+    return "{}" as T[] & string;
   }
 
-  // Convert each item to JSON string and escape for PostgreSQL array
   const elements = arr.map((item) => {
     if (item === null) {
       return "null";
-    } else {
-      const jsonStr = JSON.stringify(item);
-      // Escape quotes and backslashes for PostgreSQL array syntax
-      const escaped = jsonStr.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-      return `"${escaped}"`;
     }
+    const jsonStr = JSON.stringify(item);
+    const escaped = jsonStr.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    return `"${escaped}"`;
   });
 
-  // Return as PostgreSQL array literal
-  return `{${elements.join(",")}}`;
-}
-
-export function freeze<T>(obj: T): Readonly<T> {
-  return Object.freeze(obj);
+  return `{${elements.join(",")}}` as T[] & string;
 }
