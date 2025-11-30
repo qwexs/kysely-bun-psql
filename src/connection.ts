@@ -6,13 +6,13 @@ import {
   type TransactionSettings,
 } from "kysely";
 import { BunDialectError } from "./errors.js";
-import type { SQL } from "bun";
+import type { ReservedSQL } from "bun";
 import { transformValue } from "./utils.js";
 
 export class BunConnection implements DatabaseConnection {
-  #reservedConnection: SQL;
+  #reservedConnection: ReservedSQL;
 
-  constructor(reservedConnection: SQL) {
+  constructor(reservedConnection: ReservedSQL) {
     this.#reservedConnection = reservedConnection;
   }
 
@@ -52,8 +52,7 @@ export class BunConnection implements DatabaseConnection {
   }
 
   releaseConnection(): void {
-    this.#reservedConnection.close();
-
+    this.#reservedConnection.release();
     this.#reservedConnection = null!;
   }
 
