@@ -57,6 +57,29 @@ await db.transaction().execute(async (trx) => {
 await db.destroy();
 ```
 
+## Working with JSONB[] Arrays
+
+For PostgreSQL `JSONB[]` columns (array of JSONB elements), use the `jsonbArray()` helper:
+
+```typescript
+import { BunDialect, jsonbArray } from "kysely-bun-psql";
+
+// JSONB[] column - requires jsonbArray()
+await db.insertInto("table").values({
+  items: jsonbArray([{ id: 1 }, { id: 2 }])  // ← required for JSONB[]
+}).execute();
+
+// JSONB column - no helper needed
+await db.insertInto("table").values({
+  data: [{ id: 1 }, { id: 2 }]  // ← works directly for JSONB
+}).execute();
+
+// Primitive arrays (TEXT[], INTEGER[]) - no helper needed
+await db.insertInto("table").values({
+  tags: ["a", "b", "c"]  // ← works directly for TEXT[]
+}).execute();
+```
+
 ## Configuration
 
 The dialect accepts all the same options as Bun's SQL client:
