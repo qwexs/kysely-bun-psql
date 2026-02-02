@@ -42,6 +42,10 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
       dialect: new BunDialect({
         url:
           process.env["DATABASE_URL"] ?? "postgres://admin@localhost:5434/test",
+        max: 20,
+        connectionTimeout: 35,
+        idleTimeout: 30,
+        maxLifetime: 86400,
       }),
     });
   });
