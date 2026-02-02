@@ -1,8 +1,8 @@
 # kysely-bun-psql
 
+[![npm version](https://img.shields.io/npm/v/@qwexs/kysely-bun-psql.svg)](https://www.npmjs.com/package/@qwexs/kysely-bun-psql)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 ![Powered by TypeScript](https://img.shields.io/badge/powered%20by-typescript-blue.svg)
-
-> ⚠️ **Beta Status**: This package is currently in beta. While it's functional and tested, you may encounter bugs or missing features. Please [open an issue](https://github.com/zacknovosad/kysely-bun-psql/issues) if you find any problems or have feature requests. Pull requests are welcome!
 
 [Kysely](https://github.com/koskimas/kysely) dialect for [PostgreSQL](https://www.postgresql.org/) using Bun's built-in SQL client under the hood.
 
@@ -11,14 +11,14 @@ This dialect provides a fast, native PostgreSQL client for Kysely when running i
 ## Installation
 
 ```bash
-bun add @ratiu5/kysely-bun-psql
+bun add @qwexs/kysely-bun-psql
 ```
 
 ## Usage
 
 ```typescript
 import { Kysely, type Generated } from "kysely";
-import { BunDialect } from "kysely-bun-psql";
+import { BunDialect } from "@qwexs/kysely-bun-psql";
 
 interface Database {
   person: {
@@ -62,7 +62,7 @@ await db.destroy();
 For PostgreSQL `JSONB[]` columns (array of JSONB elements), use the `jsonbArray()` helper:
 
 ```typescript
-import { BunDialect, jsonbArray } from "kysely-bun-psql";
+import { BunDialect, jsonbArray } from "@qwexs/kysely-bun-psql";
 
 // JSONB[] column - requires jsonbArray()
 await db.insertInto("table").values({
@@ -109,10 +109,39 @@ interface BunDialectConfig {
 }
 ```
 
+### Recommended Production Settings
+
+When running in production, configure the connection pool based on your PostgreSQL `max_connections` setting and the number of services connecting to the database:
+
+```typescript
+const db = new Kysely<Database>({
+  dialect: new BunDialect({
+    url: process.env.DATABASE_URL,
+    // PostgreSQL max_connections = 100, with multiple services sharing the database
+    // Reserve a portion for this service (e.g., 20 out of 100)
+    max: 20,
+    connectionTimeout: 35,  // 35 seconds - time to wait for a connection
+    idleTimeout: 30,        // 30 seconds - close idle connections
+    maxLifetime: 86400,     // 24 hours - force reconnection for long-term stability
+  }),
+});
+```
+
+**Configuration tips:**
+
+- **max**: Set based on `(PostgreSQL max_connections) / (number of services)` with some headroom
+- **connectionTimeout**: Should be higher than your typical query time; 30-60 seconds is reasonable
+- **idleTimeout**: Balance between keeping connections ready and freeing resources; 30 seconds works well
+- **maxLifetime**: Prevents connection staleness; 24 hours (86400s) ensures daily reconnection
+
+## AI Agent Integration
+
+For AI-powered development with Kysely queries, check out the [kysely-postgres-skill](https://github.com/qwexs/kysely-postgres-skill) - a skill for AI agents that enables more effective database query generation.
+
 ## Requirements
 
 - Bun v1.2 or higher
 
 ## License
 
-MIT License, see \`LICENSE\`
+MIT License, see `LICENSE`

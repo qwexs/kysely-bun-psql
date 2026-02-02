@@ -1,13 +1,13 @@
 {
-  "name": "@ratiu5/kysely-bun-psql",
-  "version": "0.1.2",
-  "description": "Kysely dialect for PostgreSQL using the Bun's SQL client",
+  "name": "@qwexs/kysely-bun-psql",
+  "version": "1.0.0",
+  "description": "Kysely dialect for PostgreSQL using Bun's native SQL client",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/RATIU5/kysely-bun-psql.git"
+    "url": "git+https://github.com/qwexs/kysely-bun-psql.git"
   },
-  "homepage": "https://github.com/RATIU5/kysely-bun-psql",
-  "author": "Zack Novosad <zachary.novosad@gmail.com> & RATIU5",
+  "homepage": "https://github.com/qwexs/kysely-bun-psql",
+  "author": "qwexs <qwexlock@gmail.com>",
   "license": "MIT",
   "main": "./dist/index.js",
   "module": "./dist/index.js",
@@ -64,6 +64,6 @@
     "test": "tests"
   },
   "bugs": {
-    "url": "https://github.com/RATIU5/kysely-bun-psql/issues"
+    "url": "https://github.com/qwexs/kysely-bun-psql/issues"
   }
 }
