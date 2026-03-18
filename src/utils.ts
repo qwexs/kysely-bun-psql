@@ -1,7 +1,15 @@
 /**
+ * Symbol-маркер для значений, предназначенных для JSONB колонок.
+ * transformValue пропускает такие значения без преобразования,
+ * позволяя Bun SQL сериализовать их нативно как JSON.
+ */
+export const JSONB_SYMBOL = Symbol.for("kysely-bun-psql:jsonb");
+
+/**
  * Transform values for PostgreSQL compatibility
  *
  * Strategy:
+ * - Values marked with jsonb(): pass through as-is (Bun SQL handles JSONB serialization)
  * - Arrays of primitives (string, number, boolean): convert to PostgreSQL ARRAY syntax for TEXT[], INTEGER[] etc.
  * - Arrays containing objects: pass through as-is (Bun SQL handles JSONB serialization)
  * - Objects: pass through as-is (Bun SQL handles JSONB serialization)
@@ -10,11 +18,18 @@
  * This approach supports:
  * - TEXT[], INTEGER[] columns with primitive values using PostgreSQL ARRAY syntax
  * - JSONB fields with objects or arrays (handled natively by Bun SQL)
+ * - JSONB fields with primitive arrays via jsonb() helper
  *
  * Note: For JSONB[] columns, use the jsonbArray() helper function.
+ * Note: For JSONB columns with primitive arrays, use the jsonb() helper function.
  */
 export function transformValue(value: unknown): unknown {
   if (Array.isArray(value)) {
+    // Values marked with jsonb() — pass through for native JSONB serialization
+    if (JSONB_SYMBOL in value) {
+      return value;
+    }
+
     // Check if array contains any objects (excluding null)
     const containsObjects = value.some((item) => {
       return item !== null && typeof item === "object" && !Array.isArray(item);

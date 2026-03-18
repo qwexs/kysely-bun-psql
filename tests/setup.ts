@@ -3,7 +3,7 @@ import { beforeAll, afterAll } from "bun:test";
 
 // Test database configuration matching Docker settings
 const TEST_CONFIG: BunDialectConfig = {
-  url: process.env["DATABASE_URL"] ?? "postgres://admin@localhost:5434/test",
+  url: process.env["DATABASE_URL"] ?? "postgresql://localhost:5432/test",
 };
 
 async function setupTestTable() {
@@ -36,6 +36,7 @@ async function setupTestPersonTable() {
         number_tags INTEGER[],
         nullable_string_tags TEXT[],
         metadata JSONB[],
+        settings JSONB,
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `;

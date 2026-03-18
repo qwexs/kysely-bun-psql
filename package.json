@@ -1,6 +1,6 @@
 {
   "name": "@qwexs/kysely-bun-psql",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Kysely dialect for PostgreSQL using Bun's native SQL client",
   "repository": {
     "type": "git",

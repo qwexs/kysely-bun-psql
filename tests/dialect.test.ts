@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { Kysely, sql, type Generated } from "kysely";
-import { BunDialect, jsonbArray } from "../src/index";
+import { BunDialect, jsonb, jsonbArray } from "../src/index";
 
 // Define our test database schema
 interface TestDatabase {
@@ -13,6 +13,7 @@ interface TestDatabase {
     number_tags?: number[];
     nullable_string_tags?: (string | null)[];
     metadata?: TestItem[];
+    settings?: unknown;
   };
 }
 
@@ -41,7 +42,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
     db = new Kysely<TestDatabase>({
       dialect: new BunDialect({
         url:
-          process.env["DATABASE_URL"] ?? "postgres://admin@localhost:5434/test",
+          process.env["DATABASE_URL"] ?? "postgresql://localhost:5432/test",
         max: 20,
         connectionTimeout: 35,
         idleTimeout: 30,
@@ -494,5 +495,84 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
     expect(Array.isArray(person!.metadata)).toBe(true);
     expect(person!.metadata).toEqual([testMetadata]);
     expect(person!.metadata![0].items).toEqual([]);
+  });
+
+  test("should insert and select primitive array in JSONB column using jsonb()", async () => {
+    const testTags = ["javascript", "typescript", "database"];
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "JSONB",
+        last_name: "PrimitiveArray",
+        settings: jsonb(testTags),
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(Array.isArray(insertResult.settings)).toBe(true);
+    expect(insertResult.settings).toEqual(testTags);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(Array.isArray(person!.settings)).toBe(true);
+    expect(person!.settings).toEqual(testTags);
+  });
+
+  test("should insert and select number array in JSONB column using jsonb()", async () => {
+    const testNumbers = [1, 2, 3, 100];
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "JSONB",
+        last_name: "NumberArray",
+        settings: jsonb(testNumbers),
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(Array.isArray(insertResult.settings)).toBe(true);
+    expect(insertResult.settings).toEqual(testNumbers);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(Array.isArray(person!.settings)).toBe(true);
+    expect(person!.settings).toEqual(testNumbers);
+  });
+
+  test("should insert and select object in JSONB column without jsonb() helper", async () => {
+    const testSettings = { theme: "dark", fontSize: 14, notifications: true };
+
+    const insertResult = await db
+      .insertInto("person")
+      .values({
+        first_name: "JSONB",
+        last_name: "Object",
+        settings: testSettings,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+
+    expect(insertResult.settings).toEqual(testSettings);
+
+    const person = await db
+      .selectFrom("person")
+      .selectAll()
+      .where("id", "=", insertResult.id)
+      .executeTakeFirst();
+
+    expect(person).toBeDefined();
+    expect(person!.settings).toEqual(testSettings);
   });
 });
