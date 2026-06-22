@@ -43,7 +43,12 @@ export class BunConnection implements DatabaseConnection {
     const rows = Array.from(result.values()) as R[];
 
     if (["INSERT", "UPDATE", "DELETE"].includes(result.command)) {
-      const numAffectedRows = BigInt(rows.length);
+      // `result.count` is the native PG row count from the protocol and is the
+      // correct value for INSERT/UPDATE/DELETE without RETURNING. `rows.length`
+      // is 0 for such queries, which would make numAffectedRows always 0n.
+      // Fallback to `rows.length` covers any path where `count` is unavailable
+      // (e.g. hypothetical future drivers / mocks).
+      const numAffectedRows = BigInt(result.count ?? rows.length);
 
       return { numAffectedRows, rows };
     }
