@@ -79,7 +79,7 @@ export function freeze<T>(obj: T): Readonly<T> {
  *
  * Usage:
  * ```typescript
- * import { jsonbArray } from '@ratiu5/kysely-bun-psql';
+ * import { jsonbArray } from '@qwexs/kysely-bun-psql';
  *
  * await db.insertInto('table')
  *   .values({ items: jsonbArray([{ a: 1 }, { b: 2 }]) })
