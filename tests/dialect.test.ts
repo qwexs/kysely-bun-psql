@@ -102,6 +102,35 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
     expect(updated.id).toBe(inserted.id);
   });
 
+  test("REGRESSION: executeQuery returns numAffectedRows from e.count for INSERT/UPDATE/DELETE without RETURNING (#6)", async () => {
+    // https://github.com/qwexs/kysely-bun-psql/issues/6
+    // Bug: executeQuery used rows.length for numAffectedRows, which is 0 for
+    // queries without RETURNING. Fixed by reading result.count from bun:postgres.
+    await db.transaction().execute(async (trx) => {
+      // Clean slate inside the tx
+      await trx.deleteFrom("person").execute();
+
+      const ins = await trx
+        .insertInto("person")
+        .values({ first_name: "RegrInsert", last_name: "X" })
+        .executeTakeFirstOrThrow();
+      expect(ins.numInsertedOrUpdatedRows).toBe(1n);
+
+      const upd = await trx
+        .updateTable("person")
+        .set({ last_name: "Y" })
+        .where("first_name", "=", "RegrInsert")
+        .executeTakeFirstOrThrow();
+      expect(upd.numUpdatedRows).toBe(1n);
+
+      const del = await trx
+        .deleteFrom("person")
+        .where("first_name", "=", "RegrInsert")
+        .executeTakeFirstOrThrow();
+      expect(del.numDeletedRows).toBe(1n);
+    });
+  });
+
   test("should delete a person", async () => {
     // Use a transaction to ensure all queries happen in the same connection
     await db.transaction().execute(async (trx) => {
