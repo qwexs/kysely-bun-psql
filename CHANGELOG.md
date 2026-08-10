@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-08-10
+
+### Added
+
+- `BunDialectConfig.bigint` forwards Bun SQL's `bigint` option. Opt in with `bigint: true` to receive PostgreSQL integer values outside the signed `int32` range as exact JavaScript `bigint` values; the existing default remains unchanged.
+
 ## [1.2.0] - 2026-06-22
 
 ### Fixed

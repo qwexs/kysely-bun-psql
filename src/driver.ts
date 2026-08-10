@@ -22,6 +22,7 @@ export class BunDriver implements Driver {
       maxLifetime: this.#config.maxLifetime,
       connectionTimeout: this.#config.connectionTimeout,
       tls: this.#config.tls,
+      bigint: this.#config.bigint,
       onconnect: this.#config.onconnect,
       onclose: this.#config.onclose,
     });

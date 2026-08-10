@@ -103,6 +103,9 @@ interface BunDialectConfig {
   // SSL/TLS
   tls?: boolean;
 
+  // Return PostgreSQL integers outside the signed int32 range as bigint
+  bigint?: boolean;
+
   // Callbacks
   onconnect?: (err: Error | null) => void;
   onclose?: (err: Error | null) => void;
@@ -133,6 +136,21 @@ const db = new Kysely<Database>({
 - **connectionTimeout**: Should be higher than your typical query time; 30-60 seconds is reasonable
 - **idleTimeout**: Balance between keeping connections ready and freeing resources; 30 seconds works well
 - **maxLifetime**: Prevents connection staleness; 24 hours (86400s) ensures daily reconnection
+
+### PostgreSQL `BIGINT` values
+
+Bun SQL returns PostgreSQL integer values outside the signed `int32` range as strings by default. Set `bigint: true` to receive those values as JavaScript `bigint` instead:
+
+```typescript
+const db = new Kysely<Database>({
+  dialect: new BunDialect({
+    url: process.env.DATABASE_URL,
+    bigint: true,
+  }),
+});
+```
+
+This option does not make every PostgreSQL `BIGINT` a JavaScript `bigint`: values within the signed `int32` range, such as `42::bigint`, may still be returned as JavaScript `number`. Treat database IDs as `number | string | bigint` at runtime when supporting both settings, and guard `number` values with `Number.isSafeInteger` before converting them to `BigInt` for an exact comparison.
 
 ## AI Agent Integration
 

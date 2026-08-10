@@ -18,6 +18,9 @@ export type BunDialectConfig = {
   // SSL/TLS options
   tls?: boolean;
 
+  // Return PostgreSQL integers outside the signed int32 range as bigint
+  bigint?: boolean;
+
   // Callbacks
   onconnect?: (err: Error | null) => void;
   onclose?: (err: Error | null) => void;
