@@ -45,6 +45,7 @@ test("published package installs and exposes working runtime and type entry poin
     const consumer = `${temporary}/consumer`;
     await $`mkdir ${consumer}`;
     const version = await installedVersion("kysely");
+    const typescriptVersion = await installedVersion("typescript");
     await Bun.write(
       `${consumer}/package.json`,
       JSON.stringify({
@@ -56,6 +57,7 @@ test("published package installs and exposes working runtime and type entry poin
         },
         devDependencies: {
           "@types/bun": await installedVersion("@types/bun"),
+          typescript: typescriptVersion,
         },
       }),
     );
@@ -120,9 +122,13 @@ test("installed ESM/CJS exports and declarations", async () => {
       true,
     );
     await run(["check", "--no-script"], consumer);
+    await run(
+      ["run", "tsc", "--noEmit", "--project", "tsconfig.json"],
+      consumer,
+    );
     await run(["test", "./smoke.test.ts"], consumer);
     console.log(
-      `Verified published package with Bun ${Bun.version} and Kysely ${version}`,
+      `Verified published package with Bun ${Bun.version}, TypeScript ${typescriptVersion}, and Kysely ${version}`,
     );
   } finally {
     await $`rm -rf ${temporary}`;

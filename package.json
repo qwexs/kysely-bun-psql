@@ -36,17 +36,16 @@
   ],
   "scripts": {
     "build": "bun --bun run build.config.ts",
-    "fmt": "prettier --write .",
-    "fmt:check": "prettier --check .",
-    "lint": "eslint src",
+    "fmt": "bun fmt --no-script",
+    "fmt:check": "bun fmt --no-script --check",
     "prepare": "bun --bun run build",
     "prepack": "bun --bun run build",
     "test": "bun run test:unit && bun run test:integration",
     "test:unit": "bun test ./tests/unit",
     "test:integration": "bun test --preload ./tests/setup.ts ./tests/impl.test.ts ./tests/dialect.test.ts ./tests/bigint.test.ts ./tests/native-parameters.test.ts ./tests/native-driver.test.ts ./tests/native-connection.test.ts",
     "test:dialect": "bun test --preload ./tests/setup.ts ./tests/dialect.test.ts",
-    "test:package": "bun run build && bun test ./tests/package-smoke.test.ts",
-    "test:ci": "bun run type-check && bun run lint && bun run test && bun run test:package",
+    "test:package": "bun run build && bun test ./tests/package-smoke.test.ts ./tests/git-install-smoke.test.ts",
+    "test:ci": "bun run fmt:check && bun run type-check && bun run test && bun run test:package",
     "type-check": "bun check --no-script",
     "version:patch": "npm version patch -m 'Release v%s'",
     "version:minor": "npm version minor -m 'Release v%s'",
@@ -58,14 +57,12 @@
   "peerDependencies": {
     "kysely": ">=0.29.7 <0.30"
   },
-  "devDependencies": {
-    "@eslint/js": "^9.39.2",
+  "dependencies": {
     "@types/bun": "1.4.4",
-    "eslint": "^9.39.2",
-    "kysely": "0.29.7",
-    "prettier": "^3.8.1",
-    "typescript": "^5.9.3",
-    "typescript-eslint": "^8.54.0"
+    "typescript": "7.0.2"
+  },
+  "devDependencies": {
+    "kysely": "0.29.7"
   },
   "sideEffects": false,
   "directories": {

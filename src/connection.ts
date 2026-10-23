@@ -1,4 +1,3 @@
-/* eslint-disable require-yield */
 import {
   CompiledQuery,
   type AbortableOperationOptions,

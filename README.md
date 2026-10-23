@@ -14,6 +14,22 @@ Uses [Bun's native SQL client](https://bun.com/docs/runtime/sql.md) for paramete
 bun add @qwexs/kysely-bun-psql kysely
 ```
 
+### Installing from GitHub
+
+Pin a reviewed commit instead of a moving branch:
+
+```json
+{
+  "dependencies": {
+    "@qwexs/kysely-bun-psql": "github:qwexs/kysely-bun-psql#<commit-sha>",
+    "kysely": "^0.29.7"
+  },
+  "trustedDependencies": ["@qwexs/kysely-bun-psql"]
+}
+```
+
+Then run `bun install`. Bun must be allowed to run the package's `prepare` script to build `dist`; `--ignore-scripts` prevents this. Keep any other dependencies whose lifecycle scripts you need in your existing trust list: an explicit `trustedDependencies` list replaces Bun's defaults. See [Bun lifecycle scripts](https://bun.com/docs/pm/lifecycle.md).
+
 ## Usage
 
 ```typescript
@@ -234,6 +250,10 @@ Cancellation is **best-effort**, not a rollback guarantee: a write can finish be
 
 Development targets the latest stable Bun, currently **1.4.4**, recorded in `.bun-version` and `packageManager`. Older Bun releases are not part of the supported test matrix. PostgreSQL tests use the current `postgres:latest` image.
 
+Formatting uses native `bun fmt`; type checking uses native `bun check`. Declaration generation uses stable **TypeScript 7.0.2** (`tsc`), with explicit Bun types and bundler module resolution. ESLint, typescript-eslint and Prettier are not required. Native `bun lint` is currently canary-only and is not part of stable CI; formatting and type checking do not replace all lint rules.
+
+`typescript` and `@types/bun` are regular package dependencies because a trusted Git dependency must be able to run `prepare` without its development dependencies. This adds build tooling to the installed dependency tree even when using the prebuilt npm tarball.
+
 ```bash
 bun install --frozen-lockfile
 docker compose up -d --pull always --wait
@@ -256,8 +276,10 @@ bun run test:ci
 | `bun run test:unit`        | Database-free connection and serialization tests                                                     |
 | `bun run test:integration` | PostgreSQL CRUD, affected rows, transactions, concurrent reservations, pool reuse and network errors |
 | `bun run test:dialect`     | Kysely integration tests with schema setup                                                           |
-| `bun run test:package`     | Clean build, tarball contents, isolated installation, ESM/CJS imports and consumer types             |
-| `bun run test:ci`          | Type check, lint, unit, integration and package checks                                               |
+| `bun run test:package`     | TS7 build, isolated tarball and trusted Git installs, ESM/CJS imports and consumer types             |
+| `bun run fmt:check`        | Native Bun formatting check                                                                          |
+| `bun run type-check`       | Native Bun type check                                                                                |
+| `bun run test:ci`          | Formatting, type check, unit, integration and package checks                                         |
 
 Integration tests require an explicit `DATABASE_URL` and create a uniquely named schema for their fixtures. Teardown drops only that schema. The database user must be able to create schemas. Do not point the suite at a production database, and do not enable parallel file execution without isolating each file's fixtures.
 

@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Build declarations with stable TypeScript 7.0.2, explicit Bun types and bundler module resolution; validate consumer types with both TS7 and Bun.
+- Replace ESLint, typescript-eslint and Prettier tooling with stable native Bun formatting and type checking. Native canary-only linting is not enabled in stable CI.
+- Install TypeScript and Bun type definitions as package dependencies so Git dependency preparation does not rely on consumer tooling or package devDependencies.
 - Target the latest stable Bun (currently 1.4.4), with matching Bun types and a single CI runtime; older Bun versions are no longer supported.
 - Require Kysely `>=0.29.7 <0.30` for current driver, savepoint and cancellation interfaces.
 - Pass array parameters through to Bun's native serializer instead of constructing PostgreSQL array literals.
@@ -19,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Build trusted Git installations from source with their declared compiler and Bun types, covered by an isolated Git-install smoke test.
 - Await Bun SQL's asynchronous reserved-connection release, including propagating release failures to Kysely callers.
 - Preserve multidimensional arrays and allow frozen values, JSON scalars and JSON null in `jsonb()`.
 - Honor transaction access modes and report affected rows for MERGE using Bun's native metadata.
