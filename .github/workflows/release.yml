@@ -1,26 +1,68 @@
-name: Create Release
+name: Release
 
 on:
   push:
     tags:
-      - "v*" # Push events to matching v*, i.e. v1.0.0, v20.15.10
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  release:
+  validate-tag:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: ".bun-version"
+
+      - name: Check tag matches package version
+        run: |
+          bun -e '
+            const { version } = await Bun.file("package.json").json();
+            if (process.env.GITHUB_REF_NAME !== `v${version}`) {
+              throw new Error(`Tag must match package version: v${version}`);
+            }
+          '
+
+  tests:
+    needs: validate-tag
+    uses: ./.github/workflows/test.yml
+    permissions:
+      contents: read
+
+  publish:
+    needs: tests
+    uses: ./.github/workflows/publish.yml
+    permissions:
+      contents: read
+    secrets:
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  release:
+    needs: [validate-tag, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Get version from tag
-        id: get_version
-        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
         with:
-          name: Release v${{ steps.get_version.outputs.VERSION }}
+          tag_name: ${{ github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          name: Release ${{ github.ref_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true

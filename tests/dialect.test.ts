@@ -41,8 +41,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
   beforeAll(async () => {
     db = new Kysely<TestDatabase>({
       dialect: new BunDialect({
-        url:
-          process.env["DATABASE_URL"] ?? "postgresql://localhost:5432/test",
+        url: process.env["DATABASE_URL"] ?? "postgresql://localhost:5432/test",
         max: 20,
         connectionTimeout: 35,
         idleTimeout: 30,
@@ -52,7 +51,7 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
   });
 
   afterAll(async () => {
-    // await db.destroy();
+    await db.destroy();
   });
 
   test("should insert and select a person", async () => {
@@ -111,26 +110,24 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
     // https://github.com/qwexs/kysely-bun-psql/issues/6
     // Bug: executeQuery used rows.length for numAffectedRows, which is 0 for
     // queries without RETURNING. Fixed by reading result.count from bun:postgres.
+    const firstName = `RegrInsert-${crypto.randomUUID()}`;
     await db.transaction().execute(async (trx) => {
-      // Clean slate inside the tx
-      await trx.deleteFrom("person").execute();
-
       const ins = await trx
         .insertInto("person")
-        .values({ first_name: "RegrInsert", last_name: "X" })
+        .values({ first_name: firstName, last_name: "X" })
         .executeTakeFirstOrThrow();
       expect(ins.numInsertedOrUpdatedRows).toBe(1n);
 
       const upd = await trx
         .updateTable("person")
         .set({ last_name: "Y" })
-        .where("first_name", "=", "RegrInsert")
+        .where("first_name", "=", firstName)
         .executeTakeFirstOrThrow();
       expect(upd.numUpdatedRows).toBe(1n);
 
       const del = await trx
         .deleteFrom("person")
-        .where("first_name", "=", "RegrInsert")
+        .where("first_name", "=", firstName)
         .executeTakeFirstOrThrow();
       expect(del.numDeletedRows).toBe(1n);
     });
@@ -203,29 +200,29 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
   });
 
   test("should rollback failed transactions", async () => {
-    const firstName = "Rollback";
+    const firstName = `Rollback-${crypto.randomUUID()}`;
 
-    try {
-      await db.transaction().execute(async (trx) => {
-        // Insert a person
-        await trx
+    await expect(
+      db.transaction().execute(async (trx) => {
+        const inserted = await trx
           .insertInto("person")
           .values({
             first_name: firstName,
             last_name: "Test",
           })
-          .execute();
-
-        // This will fail and cause a rollback
-        await trx
+          .returningAll()
+          .executeTakeFirstOrThrow();
+        expect(inserted.first_name).toBe(firstName);
+        const visible = await trx
           .selectFrom("person")
-          .select(sql`error::text`.as("error"))
-          .execute();
-      });
-    } catch (error: unknown) {
-      // Expected to fail
-      expect(error).toBeDefined();
-    }
+          .selectAll()
+          .where("id", "=", inserted.id)
+          .executeTakeFirstOrThrow();
+        expect(visible).toEqual(inserted);
+
+        await sql`SELECT 1 / 0`.execute(trx);
+      }),
+    ).rejects.toMatchObject({ errno: "22012" });
 
     // Verify the insert was rolled back
     const person = await db
@@ -236,6 +233,81 @@ describe("Bun PostgreSQL Dialect with Kysely", () => {
 
     expect(person).toBeUndefined();
   });
+
+  test("should isolate concurrent transactions and recover after a SQL error", async () => {
+    const table = sql.id(
+      `concurrent_${crypto.randomUUID().replaceAll("-", "")}`,
+    );
+    const ready = [
+      Promise.withResolvers<void>(),
+      Promise.withResolvers<void>(),
+    ];
+    const proceed = Promise.withResolvers<void>();
+    const pids: number[] = [];
+    const levels = ["serializable", "read committed"] as const;
+    const transactions = levels.map((isolationLevel, index) =>
+      db
+        .transaction()
+        .setIsolationLevel(isolationLevel)
+        .execute(async (trx) => {
+          const before = await sql<{
+            pid: number;
+          }>`SELECT pg_backend_pid() AS pid`.execute(trx);
+          pids[index] = before.rows[0].pid;
+          await sql`CREATE TEMPORARY TABLE ${table} (value integer) ON COMMIT DROP`.execute(
+            trx,
+          );
+          const inserted = await sql<{
+            value: number;
+          }>`INSERT INTO ${table} VALUES (${index}) RETURNING value`.execute(
+            trx,
+          );
+          expect(inserted.rows).toEqual([{ value: index }]);
+          ready[index].resolve();
+          await proceed.promise;
+
+          const after = await sql<{
+            pid: number;
+            value: number;
+          }>`SELECT pg_backend_pid() AS pid, value FROM ${table}`.execute(trx);
+          expect(after.rows).toEqual([{ pid: pids[index], value: index }]);
+          const isolation = await sql<{
+            transaction_isolation: string;
+          }>`SHOW transaction_isolation`.execute(trx);
+          expect(isolation.rows).toEqual([
+            { transaction_isolation: isolationLevel },
+          ]);
+          if (index === 1) await sql`SELECT 1 / 0`.execute(trx);
+        })
+        // Also unblock the controller if setup fails before reaching the barrier.
+        .finally(() => ready[index].resolve()),
+    );
+    const settled = Promise.allSettled(transactions);
+
+    try {
+      await Promise.all(ready.map(({ promise }) => promise));
+      expect(pids).toHaveLength(2);
+      expect(pids[0]).toBeGreaterThan(0);
+      expect(pids[1]).toBeGreaterThan(0);
+      expect(pids[0]).not.toBe(pids[1]);
+    } finally {
+      proceed.resolve();
+      await settled;
+    }
+
+    const results = await settled;
+    expect(results[0].status).toBe("fulfilled");
+    expect(results[1].status).toBe("rejected");
+    if (results[1].status === "rejected") {
+      expect(results[1].reason).toMatchObject({ errno: "22012" });
+    }
+    await db.transaction().execute(async (trx) => {
+      const recovered = await sql<{
+        value: number;
+      }>`SELECT 42 AS value`.execute(trx);
+      expect(recovered.rows).toEqual([{ value: 42 }]);
+    });
+  }, 5000);
 
   test("should insert and select string array", async () => {
     // Test data for string array

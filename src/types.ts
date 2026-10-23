@@ -1,27 +1,47 @@
-export type BunDialectConfig = {
-  // Required
-  url: string;
+import type { SQL } from "bun";
 
-  // Optional configuration
-  hostname?: string;
-  port?: number;
-  database?: string;
-  username?: string;
-  password?: string;
-
-  // Connection pool settings
-  max?: number; // Maximum connections in pool
-  idleTimeout?: number; // Close idle connections after 30s
-  maxLifetime?: number; // Connection lifetime in seconds (0 = forever)
-  connectionTimeout?: number; // Timeout when establishing new connections
-
-  // SSL/TLS options
-  tls?: boolean;
-
-  // Return PostgreSQL integers outside the signed int32 range as bigint
-  bigint?: boolean;
-
-  // Callbacks
-  onconnect?: (err: Error | null) => void;
-  onclose?: (err: Error | null) => void;
+type PostgresOptions = Omit<
+  SQL.PostgresOrMySQLOptions,
+  "adapter" | "allowPublicKeyRetrieval" | "foundRows"
+> & {
+  adapter?: "postgres";
 };
+
+type PoolLifecycleOptions = {
+  /**
+   * Maximum seconds to wait for running queries when closing an owned pool.
+   * Zero closes immediately. If omitted, Bun waits without a deadline.
+   * Has no effect for an external client unless `ownsSql` is true.
+   */
+  closeTimeout?: number;
+};
+
+/**
+ * Native Bun PostgreSQL constructor options, or an existing PostgreSQL client.
+ * Connection options are passed through to Bun, including native environment
+ * defaults when `url` is omitted. MySQL and SQLite clients are not supported.
+ *
+ * WARNING: `transform` is opt-in and is not a Kysely naming plugin. Bun can
+ * rename result keys, but cannot rewrite the SQL identifiers compiled by Kysely.
+ * Keep database types and aliases consistent with the returned keys; do not
+ * combine native naming transforms with CamelCasePlugin unless intentional.
+ * The same warning applies to transforms on an externally supplied client.
+ *
+ * @see https://bun.com/docs/runtime/sql
+ */
+export type BunDialectConfig = PoolLifecycleOptions &
+  (
+    | (PostgresOptions & {
+        sql?: never;
+        /** Internally created clients are always owned by the dialect. */
+        ownsSql?: true;
+      })
+    | ({
+        /** An existing native PostgreSQL client, used without reconstructing it. */
+        sql: SQL;
+        /** Close this client on destroy. Defaults to false for external clients. */
+        ownsSql?: boolean;
+      } & {
+        [Key in keyof PostgresOptions]?: never;
+      })
+  );

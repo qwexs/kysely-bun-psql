@@ -5,7 +5,7 @@ import { BunDriver } from "../src/driver";
 import type { BunConnection } from "../src/connection";
 
 const TEST_CONFIG = {
-  url: process.env["DATABASE_URL"] ?? "postgres://admin@localhost:5434/test",
+  url: process.env["DATABASE_URL"] ?? "postgres://admin@localhost:5432/test",
 };
 
 interface TestTable {
@@ -59,20 +59,28 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
         const connection = await driver.acquireConnection();
 
         try {
-          await driver.beginTransaction(connection, {});
           await connection.executeQuery(
             CompiledQuery.raw(
-              "CREATE TEMPORARY TABLE IF NOT EXISTS test_rollback (id serial PRIMARY KEY)",
+              "CREATE TEMPORARY TABLE test_rollback (id integer PRIMARY KEY)",
             ),
           );
-          await driver.rollbackTransaction(connection);
-
-          // Verify table doesn't exist after rollback
-          expect(
-            connection.executeQuery(
-              CompiledQuery.raw("SELECT * FROM test_rollback"),
+          await driver.beginTransaction(connection, {});
+          const inserted = await connection.executeQuery<{ id: number }>(
+            CompiledQuery.raw(
+              "INSERT INTO test_rollback VALUES (1) RETURNING id",
             ),
-          ).rejects.toThrow();
+          );
+          expect(inserted.rows).toEqual([{ id: 1 }]);
+          const visible = await connection.executeQuery<{ id: number }>(
+            CompiledQuery.raw("SELECT id FROM test_rollback"),
+          );
+          expect(visible.rows).toEqual([{ id: 1 }]);
+
+          await driver.rollbackTransaction(connection);
+          const rolledBack = await connection.executeQuery(
+            CompiledQuery.raw("SELECT id FROM test_rollback"),
+          );
+          expect(rolledBack.rows).toEqual([]);
         } finally {
           await driver.releaseConnection(connection);
         }
@@ -85,7 +93,12 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
           await driver.beginTransaction(connection, {
             isolationLevel: "serializable",
           });
-          await connection.executeQuery(CompiledQuery.raw("SELECT 1"));
+          const result = await connection.executeQuery<{
+            transaction_isolation: string;
+          }>(CompiledQuery.raw("SHOW transaction_isolation"));
+          expect(result.rows).toEqual([
+            { transaction_isolation: "serializable" },
+          ]);
           await driver.commitTransaction(connection);
         } finally {
           await driver.releaseConnection(connection);
@@ -94,45 +107,199 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     });
 
     describe("connection management", () => {
+      test("should keep two reserved sessions independent", async () => {
+        const acquisitions = await Promise.allSettled([
+          driver.acquireConnection(),
+          driver.acquireConnection(),
+        ]);
+        const connections = acquisitions.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : [],
+        );
+        const table = `reservation_${crypto.randomUUID().replaceAll("-", "")}`;
+
+        try {
+          expect(connections).toHaveLength(2);
+          const [first, second] = connections;
+          const results = await Promise.all(
+            connections.map(async (connection, index) => {
+              const backend = await connection.executeQuery<{ pid: number }>(
+                CompiledQuery.raw("SELECT pg_backend_pid() AS pid"),
+              );
+              // The same name must refer to a different temporary table in each session.
+              await connection.executeQuery(
+                CompiledQuery.raw(
+                  `CREATE TEMPORARY TABLE ${table} (value integer)`,
+                ),
+              );
+              await connection.executeQuery(
+                CompiledQuery.raw(`INSERT INTO ${table} VALUES ($1)`, [index]),
+              );
+              return backend.rows[0].pid;
+            }),
+          );
+          expect(results[0]).not.toBe(results[1]);
+
+          await driver.beginTransaction(first, {});
+          await expect(
+            first.executeQuery(CompiledQuery.raw("SELECT 1 / 0")),
+          ).rejects.toMatchObject({ errno: "22012" });
+          await expect(
+            first.executeQuery(CompiledQuery.raw("SELECT 1")),
+          ).rejects.toMatchObject({ errno: "25P02" });
+
+          const unaffected = await second.executeQuery<{ value: number }>(
+            CompiledQuery.raw(`SELECT value FROM ${table}`),
+          );
+          expect(unaffected.rows).toEqual([{ value: 1 }]);
+
+          await driver.rollbackTransaction(first);
+          const recovered = await first.executeQuery<{
+            pid: number;
+            value: number;
+          }>(
+            CompiledQuery.raw(
+              `SELECT pg_backend_pid() AS pid, value FROM ${table}`,
+            ),
+          );
+          expect(recovered.rows).toEqual([{ pid: results[0], value: 0 }]);
+        } finally {
+          await Promise.all(
+            connections.map((connection) =>
+              driver.releaseConnection(connection),
+            ),
+          );
+        }
+      }, 5000);
+
+      test("should wait for release when max is one", async () => {
+        const singleDriver = new BunDriver({
+          ...TEST_CONFIG,
+          max: 1,
+          idleTimeout: 0,
+          maxLifetime: 0,
+        });
+        let first: BunConnection | undefined;
+        let waiting: Promise<BunConnection> | undefined;
+        let acquired = false;
+
+        try {
+          first = await singleDriver.acquireConnection();
+          const original = await first.executeQuery<{ pid: number }>(
+            CompiledQuery.raw("SELECT pg_backend_pid() AS pid"),
+          );
+          waiting = singleDriver.acquireConnection().then((connection) => {
+            acquired = true;
+            return connection;
+          });
+          // Attach a rejection handler immediately; cleanup still awaits the original promise.
+          void waiting.catch(() => {});
+
+          // A completed round trip on the holder is the barrier, not an elapsed delay.
+          await first.executeQuery(
+            CompiledQuery.raw("SELECT 1 AS holder_barrier"),
+          );
+          expect(acquired).toBe(false);
+
+          await singleDriver.releaseConnection(first);
+          first = undefined;
+          const second = await waiting;
+          const reused = await second.executeQuery<{ pid: number }>(
+            CompiledQuery.raw("SELECT pg_backend_pid() AS pid"),
+          );
+          expect(acquired).toBe(true);
+          expect(reused.rows).toEqual(original.rows);
+        } finally {
+          try {
+            if (first) await singleDriver.releaseConnection(first);
+            if (waiting) {
+              const second = await waiting;
+              await singleDriver.releaseConnection(second);
+            }
+          } finally {
+            await singleDriver.destroy();
+          }
+        }
+      }, 5000);
+
+      test("should recover a reserved session after a SQL error", async () => {
+        const connection = await driver.acquireConnection();
+        try {
+          const original = await connection.executeQuery<{ pid: number }>(
+            CompiledQuery.raw("SELECT pg_backend_pid() AS pid"),
+          );
+          await expect(
+            connection.executeQuery(CompiledQuery.raw("SELECT 1 / 0")),
+          ).rejects.toMatchObject({ errno: "22012" });
+          const recovered = await connection.executeQuery<{ pid: number }>(
+            CompiledQuery.raw("SELECT pg_backend_pid() AS pid"),
+          );
+          expect(recovered.rows).toEqual(original.rows);
+        } finally {
+          await driver.releaseConnection(connection);
+        }
+      }, 3000);
+
       test("should fail when using released connection", async () => {
         const connection = await driver.acquireConnection();
         await driver.releaseConnection(connection);
 
-        expect(
+        await expect(
           connection.executeQuery(CompiledQuery.raw("SELECT 1")),
         ).rejects.toThrow();
       }, 1000);
 
       test("should fail when acquiring connection after destroy", async () => {
         await driver.destroy();
-        expect(driver.acquireConnection()).rejects.toThrow();
+        await expect(driver.acquireConnection()).rejects.toThrow();
       }, 1000);
 
       test("should handle connection timeouts", async () => {
-        // Create a driver with a non-existent host that will fail quickly
+        let accepted = false;
+        let receivedStartup = false;
+        const listener = Bun.listen({
+          hostname: "127.0.0.1",
+          port: 0,
+          socket: {
+            open() {
+              accepted = true;
+            },
+            // Consume the startup message without replying to the handshake.
+            data() {
+              receivedStartup = true;
+            },
+          },
+        });
         const timeoutDriver = new BunDriver({
-          url: "postgres://admin@non.existent.host:5434/test",
-          connectionTimeout: 100,
+          url: `postgres://invalid:invalid@127.0.0.1:${listener.port}/nonexistent`,
+          connectionTimeout: 1,
+          max: 1,
+          tls: false,
         });
 
         try {
-          expect(timeoutDriver.acquireConnection()).rejects.toThrow(
-            /getaddrinfo|connection|network/i,
+          await expect(timeoutDriver.acquireConnection()).rejects.toMatchObject(
+            {
+              code: "ERR_POSTGRES_CONNECTION_TIMEOUT",
+            },
           );
+          expect(accepted).toBe(true);
+          expect(receivedStartup).toBe(true);
         } finally {
+          listener.stop(true);
           await timeoutDriver.destroy();
         }
-      }, 500);
+      }, 5000);
 
       test("should handle authentication errors", async () => {
-        // Create a driver with invalid credentials
-        const badDriver = new BunDriver({
-          url: "postgres://invalid:invalid@localhost:5434/nonexistent",
-        });
+        const url = new URL(TEST_CONFIG.url);
+        url.username = "invalid";
+        url.password = "invalid";
+        url.pathname = "/nonexistent";
+        const badDriver = new BunDriver({ url: url.toString() });
 
         try {
-          expect(badDriver.acquireConnection()).rejects.toThrow(
-            /role.*does not exist/i,
+          await expect(badDriver.acquireConnection()).rejects.toThrow(
+            /role.*does not exist|password authentication failed|database.*does not exist/i,
           );
         } finally {
           await badDriver.destroy();
@@ -140,21 +307,33 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
       }, 1000);
 
       test("should handle connection refused", async () => {
-        // Create a driver pointing to a non-existent server
+        const listener = Bun.listen({
+          hostname: "127.0.0.1",
+          port: 0,
+          socket: { data() {} },
+        });
+        const port = listener.port;
+        listener.stop(true);
+
+        // Use only the closed loopback endpoint, never the integration database.
         const unreachableDriver = new BunDriver({
-          url:
-            process.env["DATABASE_URL"] ||
-            "postgres://admin@localhost:5435/test", // Wrong port
+          url: `postgres://invalid:invalid@127.0.0.1:${port}/nonexistent`,
+          connectionTimeout: 1,
+          max: 1,
+          tls: false,
         });
 
         try {
-          expect(unreachableDriver.acquireConnection()).rejects.toThrow(
-            /connection closed|ECONNREFUSED|connect failed/i,
-          );
+          await expect(
+            unreachableDriver.acquireConnection(),
+          ).rejects.toMatchObject({
+            code: "ERR_POSTGRES_CONNECTION_REFUSED",
+          });
         } finally {
+          listener.stop(true);
           await unreachableDriver.destroy();
         }
-      }, 1000);
+      }, 3000);
     });
   });
 
@@ -297,6 +476,68 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
       expect(result.rows.map((r) => r.value)).toEqual(["one", "three", "two"]);
     }, 1000);
 
+    test("should report zero and multiple affected rows without RETURNING", async () => {
+      const inserted = await connection.executeQuery(
+        CompiledQuery.raw(
+          "INSERT INTO test_table (value) VALUES ('one'), ('two'), ('three')",
+        ),
+      );
+      expect(inserted.rows).toEqual([]);
+      expect(inserted.numAffectedRows).toBe(3n);
+
+      const updated = await connection.executeQuery(
+        CompiledQuery.raw(
+          "UPDATE test_table SET value = 'updated' WHERE value <> 'three'",
+        ),
+      );
+      expect(updated.rows).toEqual([]);
+      expect(updated.numAffectedRows).toBe(2n);
+      const noUpdate = await connection.executeQuery(
+        CompiledQuery.raw("UPDATE test_table SET value = 'unused' WHERE false"),
+      );
+      expect(noUpdate.numAffectedRows).toBe(0n);
+
+      const deleted = await connection.executeQuery(
+        CompiledQuery.raw("DELETE FROM test_table WHERE value = 'updated'"),
+      );
+      expect(deleted.rows).toEqual([]);
+      expect(deleted.numAffectedRows).toBe(2n);
+      const noDelete = await connection.executeQuery(
+        CompiledQuery.raw("DELETE FROM test_table WHERE false"),
+      );
+      expect(noDelete.numAffectedRows).toBe(0n);
+    }, 3000);
+
+    test("should report affected rows for ON CONFLICT", async () => {
+      await connection.executeQuery(
+        CompiledQuery.raw(
+          "INSERT INTO test_table (id, value) VALUES (1, 'original')",
+        ),
+      );
+      const ignored = await connection.executeQuery(
+        CompiledQuery.raw(
+          "INSERT INTO test_table (id, value) VALUES (1, 'ignored') ON CONFLICT (id) DO NOTHING",
+        ),
+      );
+      expect(ignored.rows).toEqual([]);
+      expect(ignored.numAffectedRows).toBe(0n);
+
+      const upserted = await connection.executeQuery(
+        CompiledQuery.raw(
+          "INSERT INTO test_table (id, value) VALUES (1, 'updated'), (2, 'new') ON CONFLICT (id) DO UPDATE SET value = excluded.value",
+        ),
+      );
+      expect(upserted.rows).toEqual([]);
+      expect(upserted.numAffectedRows).toBe(2n);
+      const rows = await connection.executeQuery<TestTable>(
+        CompiledQuery.raw("SELECT id, value FROM test_table ORDER BY id"),
+      );
+      expect(rows.rows).toEqual([
+        { id: 1, value: "updated" },
+        { id: 2, value: "new" },
+      ]);
+    }, 3000);
+
     test("should handle empty result sets", async () => {
       const result = await connection.executeQuery<TestTable>(
         CompiledQuery.raw("SELECT * FROM test_table WHERE false"),
@@ -332,7 +573,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     });
 
     test("should handle syntax errors", async () => {
-      expect(
+      await expect(
         connection.executeQuery(
           CompiledQuery.raw("SELCT * FROM error_test"), // Intentional typo
         ),
@@ -348,7 +589,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
       );
 
       // Try to insert duplicate value (UNIQUE constraint violation)
-      expect(
+      await expect(
         connection.executeQuery(
           CompiledQuery.raw("INSERT INTO error_test (value) VALUES ($1)", [
             "unique_value",
@@ -357,7 +598,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
       ).rejects.toThrow(/unique constraint/i);
 
       // Try to insert NULL (NOT NULL constraint violation)
-      expect(
+      await expect(
         connection.executeQuery(
           CompiledQuery.raw("INSERT INTO error_test (value) VALUES ($1)", [
             null,
@@ -367,7 +608,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle invalid parameter types", async () => {
-      expect(
+      await expect(
         connection.executeQuery(
           CompiledQuery.raw(
             "INSERT INTO error_test (id) VALUES ($1)",
@@ -378,7 +619,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle table not found errors", async () => {
-      expect(
+      await expect(
         connection.executeQuery(
           CompiledQuery.raw("SELECT * FROM nonexistent_table"),
         ),
@@ -386,7 +627,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle column not found errors", async () => {
-      expect(
+      await expect(
         connection.executeQuery(
           CompiledQuery.raw("SELECT nonexistent_column FROM error_test"),
         ),
@@ -394,7 +635,7 @@ describe("Bun PostgreSQL Dialect Implementation", () => {
     }, 1000);
 
     test("should handle parameter count mismatch", async () => {
-      expect(
+      await expect(
         connection.executeQuery(
           CompiledQuery.raw("INSERT INTO error_test (value) VALUES ($1, $2)", [
             "too_few_params",

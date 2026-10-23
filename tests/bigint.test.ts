@@ -39,6 +39,7 @@ describe("BunDialect PostgreSQL BIGINT runtime contract", () => {
   test("preserves Bun SQL's default string representation above int32", async () => {
     const values = await selectInt8Values();
 
+    expect(values.small_int8).toBe("42");
     expect(values.above_i32).toBe("2147483648");
     expect(values.max_int8).toBe("9223372036854775807");
   });
@@ -49,7 +50,6 @@ describe("BunDialect PostgreSQL BIGINT runtime contract", () => {
     expect(values.above_i32).toBe(2_147_483_648n);
     expect(values.max_int8).toBe(9_223_372_036_854_775_807n);
 
-    const smallInt8Type = typeof values.small_int8;
-    expect(["number", "bigint"]).toContain(smallInt8Type);
+    expect(values.small_int8).toBe(42n);
   });
 });

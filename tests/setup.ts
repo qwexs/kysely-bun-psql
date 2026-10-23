@@ -1,32 +1,28 @@
-import type { BunDialectConfig } from "../src/index";
 import { beforeAll, afterAll } from "bun:test";
 
-// Test database configuration matching Docker settings
-const TEST_CONFIG: BunDialectConfig = {
-  url: process.env["DATABASE_URL"] ?? "postgresql://localhost:5432/test",
-};
+const databaseUrl = process.env["DATABASE_URL"];
+if (!databaseUrl) {
+  throw new Error(
+    "Set DATABASE_URL to a disposable PostgreSQL database before running integration tests. See README.md.",
+  );
+}
 
-async function setupTestTable() {
-  const sql = new Bun.SQL(TEST_CONFIG.url);
+// Each test process owns a schema; never drop a user's existing public tables.
+const schema = `kysely_test_${crypto.randomUUID().replaceAll("-", "")}`;
+const url = new URL(databaseUrl);
+url.searchParams.set("search_path", schema);
+process.env["DATABASE_URL"] = url.toString();
+
+beforeAll(async () => {
+  const sql = new Bun.SQL(url.toString());
   try {
+    await sql.unsafe(`CREATE SCHEMA IF NOT EXISTS "${schema}"`);
     await sql`
       CREATE TABLE IF NOT EXISTS test_table (
         id SERIAL PRIMARY KEY,
         value VARCHAR NOT NULL
       )
     `;
-    await sql.close();
-  } catch (error) {
-    console.error("Error setting up test table:", error);
-    throw error;
-  } finally {
-    await sql.close();
-  }
-}
-
-async function setupTestPersonTable() {
-  const sql = new Bun.SQL(TEST_CONFIG.url);
-  try {
     await sql`
       CREATE TABLE IF NOT EXISTS person (
         id SERIAL PRIMARY KEY,
@@ -40,38 +36,16 @@ async function setupTestPersonTable() {
         created_at TIMESTAMP NOT NULL DEFAULT NOW()
       )
     `;
-  } catch (error) {
-    console.error("Error setting up test person table:", error);
-    throw error;
   } finally {
     await sql.close();
   }
-}
-
-async function cleanupTestTable() {
-  const sql = new Bun.SQL(TEST_CONFIG.url);
-  try {
-    await sql`DROP TABLE IF EXISTS test_table`;
-  } finally {
-    await sql.close();
-  }
-}
-
-async function cleanupTestPersonTable() {
-  const sql = new Bun.SQL(TEST_CONFIG.url);
-  try {
-    await sql`DROP TABLE IF EXISTS person`;
-  } finally {
-    await sql.close();
-  }
-}
-
-beforeAll(async () => {
-  await setupTestTable();
-  await setupTestPersonTable();
 });
 
 afterAll(async () => {
-  await cleanupTestTable();
-  await cleanupTestPersonTable();
+  const sql = new Bun.SQL(databaseUrl);
+  try {
+    await sql.unsafe(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+  } finally {
+    await sql.close();
+  }
 });

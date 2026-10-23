@@ -1,72 +1,40 @@
+import { SQL } from "bun";
+import { sql, type RawBuilder } from "kysely";
+
+// Only parameter factories are used: no queries or reservations, so this client
+// never opens connections. Its adapter must not depend on the ambient Bun.sql.
+const helperSql = new SQL({ adapter: "postgres" });
+
 /**
- * Symbol-маркер для значений, предназначенных для JSONB колонок.
- * transformValue пропускает такие значения без преобразования,
- * позволяя Bun SQL сериализовать их нативно как JSON.
+ * @deprecated Legacy JSONB marker, retained for source compatibility only.
+ * Native Bun serialization and the JSON helpers no longer use this symbol.
  */
 export const JSONB_SYMBOL = Symbol.for("kysely-bun-psql:jsonb");
 
-/**
- * Transform values for PostgreSQL compatibility
- *
- * Strategy:
- * - Values marked with jsonb(): pass through as-is (Bun SQL handles JSONB serialization)
- * - Arrays of primitives (string, number, boolean): convert to PostgreSQL ARRAY syntax for TEXT[], INTEGER[] etc.
- * - Arrays containing objects: pass through as-is (Bun SQL handles JSONB serialization)
- * - Objects: pass through as-is (Bun SQL handles JSONB serialization)
- * - Primitive values: pass through
- *
- * This approach supports:
- * - TEXT[], INTEGER[] columns with primitive values using PostgreSQL ARRAY syntax
- * - JSONB fields with objects or arrays (handled natively by Bun SQL)
- * - JSONB fields with primitive arrays via jsonb() helper
- *
- * Note: For JSONB[] columns, use the jsonbArray() helper function.
- * Note: For JSONB columns with primitive arrays, use the jsonb() helper function.
- */
+/** Leave parameter serialization, including arrays and JSON, to Bun SQL. */
 export function transformValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    // Values marked with jsonb() — pass through for native JSONB serialization
-    if (JSONB_SYMBOL in value) {
-      return value;
-    }
-
-    // Check if array contains any objects (excluding null)
-    const containsObjects = value.some((item) => {
-      return item !== null && typeof item === "object" && !Array.isArray(item);
-    });
-
-    // Arrays with objects - let Bun handle natively for JSONB columns
-    // For JSONB[] columns, user should use jsonbArray() helper
-    if (containsObjects) {
-      return value;
-    }
-
-    // Arrays of primitives - convert to PostgreSQL ARRAY syntax
-    return createPostgresArray(value);
-  }
-
-  // Objects and primitives - let Bun handle natively
   return value;
 }
 
 /**
- * Create PostgreSQL ARRAY literal from array of primitives
- * Converts ["a", "b", 1] to {"a","b","1"}
- * Handles null values and primitive types with proper quoting
+ * @deprecated Use native array parameters or pgArray() instead.
+ * This legacy literal serializer is not used by the connection's native path.
  */
-export function createPostgresArray(arr: unknown[]): string {
-  const serialized = arr
-    .map((item) => {
-      if (typeof item === "string") {
-        // Экранируем обратные слэши и кавычки для PostgreSQL
-        const escaped = item.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-        return `"${escaped}"`;
-      }
-      // Numbers, booleans, and other primitives - pass through as strings
-      return String(item);
-    })
-    .join(",");
-  return `{${serialized}}`;
+export function createPostgresArray(arr: readonly unknown[]): string {
+  const elements = Array.from(arr, (item): string => {
+    if (Array.isArray(item)) {
+      return createPostgresArray(item);
+    }
+    if (item === null || item === undefined) {
+      return "NULL";
+    }
+    if (typeof item === "string") {
+      const escaped = item.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+      return `"${escaped}"`;
+    }
+    return String(item);
+  });
+  return `{${elements.join(",")}}`;
 }
 
 export function freeze<T>(obj: T): Readonly<T> {
@@ -74,31 +42,57 @@ export function freeze<T>(obj: T): Readonly<T> {
 }
 
 /**
- * Helper for JSONB[] columns.
- * Converts an array of objects to PostgreSQL array literal format.
+ * Bind a value as JSON using Bun's native JSON parameter helper.
+ * Supports objects, arrays (including frozen arrays), scalars and JSON null,
+ * without mutating the input. Works with prepare: true and prepare: false.
+ * Returns a Kysely expression, not the original value or serialized JSON text.
  *
- * Usage:
- * ```typescript
- * import { jsonbArray } from '@qwexs/kysely-bun-psql';
- *
- * await db.insertInto('table')
- *   .values({ items: jsonbArray([{ a: 1 }, { b: 2 }]) })
- *   .execute();
- * ```
+ * @example
+ * db.insertInto('table').values({ tags: jsonb(["tag1", "tag2"]) }).execute();
  */
-export function jsonbArray<T>(arr: T[]): T[] & string {
-  if (arr.length === 0) {
-    return "{}" as T[] & string;
-  }
+export function jsonb<T>(value: T): RawBuilder<T> {
+  return sql.val(helperSql.json(value)).$castTo<T>();
+}
 
-  const elements = arr.map((item) => {
-    if (item === null) {
-      return "null";
-    }
-    const jsonStr = JSON.stringify(item);
-    const escaped = jsonStr.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-    return `"${escaped}"`;
-  });
+/**
+ * Bind a JSONB[] parameter without mutating the input.
+ * null elements are JSON null; undefined elements are SQL NULL.
+ * Nested JS arrays are single JSON values, not SQL array dimensions.
+ * SQL NULL elements read back as null, so undefined becomes null in the result type.
+ */
+export function jsonbArray<T>(
+  arr: readonly T[],
+): RawBuilder<(T extends undefined ? null : T)[]> {
+  const values = Array.from(arr, (item) =>
+    Array.isArray(item) ? helperSql.json(item) : item,
+  );
+  return sql
+    .val(helperSql.array(values, "JSONB"))
+    .$castTo<(T extends undefined ? null : T)[]>();
+}
 
-  return `{${elements.join(",")}}` as T[] & string;
+/**
+ * Bind a PostgreSQL array, optionally specifying its element type name or array
+ * type OID. Use this for custom enums and typed arrays. Nested JS arrays retain
+ * their SQL dimensions; null elements are SQL NULL (except with JSON/JSONB).
+ * Undefined elements read back as null. The result type describes the column
+ * value, not Bun's binary decoding format.
+ */
+export function pgArray<T>(
+  values: readonly T[],
+  type?: Parameters<SQL["array"]>[1],
+): RawBuilder<(T extends undefined ? null : T)[]>;
+export function pgArray<T extends NodeJS.TypedArray>(
+  values: T,
+  type?: Parameters<SQL["array"]>[1],
+): RawBuilder<T[number][]>;
+export function pgArray(
+  values: readonly unknown[] | NodeJS.TypedArray,
+  type?: Parameters<SQL["array"]>[1],
+): RawBuilder<unknown[]> {
+  // Bun's declaration takes mutable arrays, so copy readonly arrays at the edge.
+  const input = Array.isArray(values)
+    ? [...values]
+    : (values as NodeJS.TypedArray);
+  return sql.val(helperSql.array(input, type)).$castTo<unknown[]>();
 }
