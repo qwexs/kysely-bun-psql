@@ -56,18 +56,11 @@ describe("legacy PostgreSQL array literals (not the native path)", () => {
     },
   ])("serializes $name", ({ input, expected }) => {
     expect(createPostgresArray(input)).toBe(expected);
-    expect(transformValue(input)).toBe(input);
   });
 });
 
-describe("native Bun serialization pass-through", () => {
+describe("native Bun parameter serialization", () => {
   test.each([
-    { name: "null", value: null },
-    { name: "undefined", value: undefined },
-    { name: "string", value: "text" },
-    { name: "number", value: 42 },
-    { name: "boolean", value: false },
-    { name: "bigint", value: 9007199254740993n },
     { name: "empty array", value: [] },
     { name: "primitive array", value: [1, "two", null] },
     { name: "frozen array", value: Object.freeze([1, "two", null]) },
@@ -78,24 +71,37 @@ describe("native Bun serialization pass-through", () => {
         [2, 3],
       ],
     },
+    { name: "object array", value: [{ id: 1 }, { id: 2 }] },
+    { name: "mixed object array", value: [null, "text", { id: 1 }] },
+  ])("binds $name as a PostgreSQL array without mutation", ({ value }) => {
+    const before = JSON.stringify(value);
+    expect(transformValue(value)).toEqual(bunSql.array([...value]));
+    expect(JSON.stringify(value)).toBe(before);
+  });
+
+  test.each([
+    { name: "null", value: null },
+    { name: "undefined", value: undefined },
+    { name: "string", value: "text" },
+    { name: "number", value: 42 },
+    { name: "boolean", value: false },
+    { name: "bigint", value: 9007199254740993n },
     { name: "plain object", value: { tags: [1, 2] } },
     { name: "frozen object", value: Object.freeze({ id: 1 }) },
     { name: "date", value: new Date("2026-01-01T00:00:00Z") },
     { name: "binary buffer", value: new Uint8Array([0, 1, 255]) },
     { name: "integer typed array", value: new Int32Array([1, 2]) },
     { name: "float typed array", value: new Float32Array([1.5, 2.5]) },
-    { name: "object array", value: [{ id: 1 }, { id: 2 }] },
-    { name: "mixed object array", value: [null, "text", { id: 1 }] },
     { name: "Bun JSON helper", value: bunSql.json([1, null]) },
     { name: "Bun array helper", value: bunSql.array([1, null], "INT") },
   ])("preserves $name by identity", ({ value }) => {
     expect(transformValue(value)).toBe(value);
   });
 
-  test("retains the deprecated marker export without requiring it", () => {
+  test("retains the deprecated marker export without changing array binding", () => {
     expect<symbol>(JSONB_SYMBOL).toBe(Symbol.for("kysely-bun-psql:jsonb"));
     const value = Object.assign([1, 2], { [JSONB_SYMBOL]: true });
-    expect(transformValue(value)).toBe(value);
+    expect(transformValue(value)).toEqual(bunSql.array([1, 2]));
   });
 });
 

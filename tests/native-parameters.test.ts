@@ -2,11 +2,13 @@ import { SQL, sql as bunSql, type ReservedSQL } from "bun";
 import { describe, expect, test } from "bun:test";
 import {
   createQueryId,
+  Kysely,
   PostgresQueryCompiler,
   sql,
+  type Generated,
   type RawBuilder,
 } from "kysely";
-import { jsonb, jsonbArray, pgArray } from "../src/index";
+import { BunDialect, jsonb, jsonbArray, pgArray } from "../src/index";
 import { transformValue } from "../src/utils";
 
 async function withSession(
@@ -39,7 +41,90 @@ function execute<T>(session: ReservedSQL, expression: RawBuilder<T>) {
 describe.each([true, false])(
   "native unsafe parameters (prepare: %s)",
   (prepare) => {
-    test("ordinary arrays, 2D arrays, objects and Int32Array", async () => {
+    test("Kysely binds ordinary arrays as SQL arrays and explicit JSON as JSON", async () => {
+      interface Database {
+        array_contract: {
+          id: Generated<number>;
+          moods: (string | null)[];
+          tags: (string | null)[];
+          data: unknown;
+          objects: unknown;
+          payloads: unknown[];
+        };
+      }
+
+      const url = process.env["DATABASE_URL"];
+      if (!url) throw new Error("Set DATABASE_URL and preload tests/setup.ts");
+      const pool = new SQL(url, { prepare, max: 1 });
+      const db = new Kysely<Database>({
+        dialect: new BunDialect({ sql: pool }),
+      });
+      try {
+        await pool.unsafe(`
+          CREATE TEMP TABLE array_contract (
+            id serial PRIMARY KEY,
+            tags text[],
+            data jsonb,
+            objects jsonb,
+            payloads jsonb[]
+          )
+        `);
+        await pool.unsafe(`
+          CREATE TYPE pg_temp.array_contract_mood AS ENUM
+          ('ok', 'happy', 'a,b', 'a"b\\c', 'NULL')
+        `);
+        await pool.unsafe(`
+          ALTER TABLE array_contract ADD COLUMN moods pg_temp.array_contract_mood[]
+        `);
+
+        const moods = ["ok", "a,b", 'a"b\\c', "NULL", null];
+        const tags = ["a,b", 'a"b\\c', "NULL", null];
+        const inserted = await db
+          .insertInto("array_contract")
+          .values({
+            moods,
+            tags,
+            data: jsonb([1, null, "two"]),
+            objects: jsonb([{ id: 1 }, { id: 2 }]),
+            payloads: jsonbArray([{ id: 1 }, null]),
+          })
+          .returning([
+            "id",
+            "tags",
+            "data",
+            "objects",
+            "payloads",
+            sql<(string | null)[]>`moods::text[]`.as("moods"),
+            sql<boolean>`payloads[2] IS NULL`.as("payload_is_sql_null"),
+          ])
+          .executeTakeFirstOrThrow();
+        expect(inserted.moods).toEqual(moods);
+        expect(inserted.tags).toEqual(tags);
+        expect(inserted.data).toEqual([1, null, "two"]);
+        expect(inserted.objects).toEqual([{ id: 1 }, { id: 2 }]);
+        expect(inserted.payloads).toEqual([{ id: 1 }, null]);
+        expect(inserted.payload_is_sql_null).toBe(false);
+
+        const updated = await db
+          .updateTable("array_contract")
+          .set({ moods: [], tags: [], data: jsonb([]) })
+          .where("id", "=", inserted.id)
+          .returning([
+            "tags",
+            "data",
+            sql<(string | null)[]>`moods::text[]`.as("moods"),
+          ])
+          .executeTakeFirstOrThrow();
+        expect(updated.moods).toEqual([]);
+        expect(updated.tags).toEqual([]);
+        expect(updated.data).toEqual([]);
+      } finally {
+        await db.destroy();
+        await pool.close();
+      }
+    });
+
+    test("SQL arrays, explicit JSON, objects and Int32Array", async () => {
       await withSession(prepare, async (session) => {
         const matrix = [
           [1, 2],
@@ -59,7 +144,7 @@ describe.each([true, false])(
         SELECT ${[1, null, 3]}::int[] AS ints,
                ${matrix}::int[][] AS matrix,
                ${texts}::text[] AS texts,
-               ${[1, null, "two"]}::jsonb AS json,
+               ${jsonb([1, null, "two"])}::jsonb AS json,
                ${{ tags: [1, 2] }}::jsonb AS object,
                ${new Int32Array([1, 2, 3])}::int[] AS typed
       `,

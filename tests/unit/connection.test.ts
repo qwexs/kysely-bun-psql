@@ -1,3 +1,4 @@
+import { sql as bunSql } from "bun";
 import { describe, expect, spyOn, test } from "bun:test";
 import {
   CompiledQuery,
@@ -118,10 +119,10 @@ describe("BunConnection without a database", () => {
     expect(fake.calls).toStrictEqual([
       {
         sql: query.sql,
-        parameters: [array, object, marked, null, 42],
+        parameters: [bunSql.array(array), object, marked, null, 42],
       },
     ]);
-    expect(fake.calls[0]?.parameters[0]).toBe(array);
+    expect(fake.calls[0]?.parameters[0]).toEqual(bunSql.array(array));
     expect(fake.calls[0]?.parameters[1]).toBe(object);
     expect(fake.calls[0]?.parameters[2]).toBe(marked);
     expect(parameters[0]).toBe(array);

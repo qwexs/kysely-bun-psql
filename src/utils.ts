@@ -11,9 +11,9 @@ const helperSql = new SQL({ adapter: "postgres" });
  */
 export const JSONB_SYMBOL = Symbol.for("kysely-bun-psql:jsonb");
 
-/** Leave parameter serialization, including arrays and JSON, to Bun SQL. */
+/** Bind ordinary arrays as PostgreSQL arrays using Bun's native helper. */
 export function transformValue(value: unknown): unknown {
-  return value;
+  return Array.isArray(value) ? helperSql.array([...value]) : value;
 }
 
 /**
@@ -73,8 +73,9 @@ export function jsonbArray<T>(
 
 /**
  * Bind a PostgreSQL array, optionally specifying its element type name or array
- * type OID. Use this for custom enums and typed arrays. Nested JS arrays retain
- * their SQL dimensions; null elements are SQL NULL (except with JSON/JSONB).
+ * type OID. Use this when the type cannot be inferred or for typed arrays.
+ * Nested JS arrays retain their SQL dimensions; null elements are SQL NULL
+ * (except with JSON/JSONB).
  * Undefined elements read back as null. The result type describes the column
  * value, not Bun's binary decoding format.
  */

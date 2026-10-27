@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Install TypeScript and Bun type definitions as package dependencies so Git dependency preparation does not rely on consumer tooling or package devDependencies.
 - Target the latest stable Bun (currently 1.4.4), with matching Bun types and a single CI runtime; older Bun versions are no longer supported.
 - Require Kysely `>=0.29.7 <0.30` for current driver, savepoint and cancellation interfaces.
-- Pass array parameters through to Bun's native serializer instead of constructing PostgreSQL array literals.
+- Bind ordinary JavaScript arrays as PostgreSQL arrays using Bun's native `sql.array()` instead of constructing array literals. Use `jsonb()` when an array is intended as a JSON/JSONB value, including arrays of objects.
 - Return honest Kysely `RawBuilder` expressions from `jsonb()` and `jsonbArray()`; inputs are no longer mutated. Deprecate the inert `JSONB_SYMBOL` export.
 - Encode `jsonbArray()` null elements as JSON null; use undefined for SQL NULL. Nested JS arrays are individual JSON values.
 - Run PostgreSQL integration tests against `postgres:latest` with health checks and isolated fixture schemas.
@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Bind ordinary arrays to PostgreSQL enum array columns without requiring `pgArray()` when the column provides type context.
 - Build trusted Git installations from source with their declared compiler and Bun types, covered by an isolated Git-install smoke test.
 - Await Bun SQL's asynchronous reserved-connection release, including propagating release failures to Kysely callers.
 - Preserve multidimensional arrays and allow frozen values, JSON scalars and JSON null in `jsonb()`.

@@ -1,3 +1,4 @@
+import { sql as bunSql } from "bun";
 import { describe, expect, test } from "bun:test";
 import { CompiledQuery } from "kysely";
 import { BunConnection, jsonb } from "../../src/index";
@@ -10,7 +11,11 @@ describe("runtime regressions", () => {
       [1, 2],
       [3, 4],
     ];
-    expect(transformValue(input)).toBe(input);
+    expect(transformValue(input)).toEqual(bunSql.array(input));
+    expect(input).toEqual([
+      [1, 2],
+      [3, 4],
+    ]);
   });
 
   test("reports MERGE affected rows from the protocol count", async () => {
@@ -34,7 +39,6 @@ describe("runtime regressions", () => {
     const node = expression.toOperationNode();
     expect(node.kind).toBe("RawNode");
     expect(node.parameters).toHaveLength(1);
-    expect(transformValue(input)).toBe(input);
     expect(JSON.stringify(input)).toBe("[1,2]");
     expect(input).toEqual([1, 2]);
   });

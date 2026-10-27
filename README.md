@@ -75,9 +75,9 @@ await db.destroy();
 
 ## Native JSON and PostgreSQL arrays
 
-Ordinary arrays are passed directly to Bun: the PostgreSQL parameter type determines whether they represent SQL arrays or JSON. Nested SQL arrays retain their dimensions. The dialect no longer constructs array literals itself.
+Ordinary JavaScript arrays are bound as PostgreSQL arrays using Bun's native `sql.array()` helper. This includes arrays of user-defined enums when PostgreSQL can infer the element type from the query. Nested arrays retain their SQL dimensions; the dialect does not construct array literals itself.
 
-Use `jsonb(value)` to explicitly bind **any JSON value**, including scalars, frozen objects/arrays and JSON `null`. It uses native `sql.json()` and works consistently with `prepare: true` and `prepare: false`:
+Use `jsonb(value)` to bind **any JSON value**, including arrays of primitives or objects, scalars, frozen objects/arrays and JSON `null`. It uses native `sql.json()` and works consistently with `prepare: true` and `prepare: false`:
 
 ```typescript
 import { jsonb, jsonbArray, pgArray } from "@qwexs/kysely-bun-psql";
@@ -88,12 +88,13 @@ await db
     data: jsonb(Object.freeze([1, 2])), // one JSONB value
     payloads: jsonbArray([{ id: 1 }, null, [1, 2]]), // JSONB[] elements
     tags: ["bun", "sql"], // native TEXT[] parameter
+    moods: ["ok", "happy"], // enum[] when the column provides the type
   })
   .execute();
 
-// Explicit SQL array helpers for typed arrays or custom PostgreSQL types:
+// Explicit SQL array helpers for typed arrays or a type without query context:
 const scores = pgArray(new Float32Array([1.5, 2.5]), "REAL");
-const moods = pgArray(["ok", "happy"], "mood"); // existing PostgreSQL enum
+const moods = pgArray(["ok", "happy"], "mood"); // e.g. SELECT with no type context
 const matrix = pgArray(
   [
     [1, 2],
@@ -103,6 +104,7 @@ const matrix = pgArray(
 );
 ```
 
+- Always use `jsonb()` when a JavaScript array should be one JSON/JSONB value, including empty arrays and arrays of objects. An unwrapped array is bound as an SQL array; PostgreSQL may store its array literal as a JSON string instead of rejecting it.
 - `jsonb(null)` is JSON null; a bare `null` is SQL NULL.
 - `jsonbArray()` uses native `sql.array(..., "JSONB")`. Nested JS arrays are individual JSON elements, not extra SQL dimensions. `null` elements are JSON null; `undefined` elements are SQL NULL.
 - `pgArray()` accepts an element type name or an **array type OID**, matching Bun's native helper. Nested arrays represent SQL dimensions.
@@ -113,6 +115,8 @@ const matrix = pgArray(
 ### Migration from earlier helper behavior
 
 `jsonb()` no longer marks the input with `JSONB_SYMBOL`, and `jsonbArray()` no longer returns a PostgreSQL literal masquerading as an array. Stop serializing or inspecting the helpers' return values outside queries. The deprecated `JSONB_SYMBOL` export remains for source compatibility but has no serialization effect. JSONB[] `null` elements now mean JSON null; use `undefined` for SQL NULL.
+
+Ordinary arrays now always bind as PostgreSQL arrays. Wrap arrays intended for JSON/JSONB in `jsonb()`, even if an array of objects previously worked without a helper. This is also a change from earlier v2 pass-through behavior.
 
 ## Configuration
 
