@@ -5,6 +5,7 @@ import {
   Kysely,
   PostgresQueryCompiler,
   sql,
+  type ColumnType,
   type Generated,
   type RawBuilder,
 } from "kysely";
@@ -124,6 +125,97 @@ describe.each([true, false])(
       }
     });
 
+    test("jsonb preserves omitted fields, SQL NULL and JSON arrays in Kysely writes", async () => {
+      type Schedule = { day: string; slots: (number | null)[] }[];
+      interface Database {
+        jsonb_contract: {
+          id: Generated<number>;
+          label: string;
+          schedule: ColumnType<
+            Schedule | null,
+            Schedule | null | undefined,
+            Schedule | null | undefined
+          >;
+        };
+      }
+      const url = process.env["DATABASE_URL"];
+      if (!url)
+        throw new Error("Set DATABASE_URL to a disposable PostgreSQL database");
+      const pool = new SQL(url, { prepare, max: 1 });
+      const db = new Kysely<Database>({
+        dialect: new BunDialect({ sql: pool }),
+      });
+      try {
+        await db.connection().execute(async (connection) => {
+          await sql`create temporary table jsonb_contract (
+            id serial primary key, label text not null,
+            schedule jsonb default '[{"day":"default","slots":[]}]'::jsonb
+          )`.execute(connection);
+          const defaults: Schedule = [{ day: "default", slots: [] }];
+          const payload: Schedule = [{ day: "MONDAY", slots: [1, null, 3] }];
+          const insert = async (
+            label: string,
+            schedule: Schedule | null | undefined,
+          ) =>
+            connection
+              .insertInto("jsonb_contract")
+              .values({ label, schedule: jsonb(schedule) })
+              .returningAll()
+              .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+              .executeTakeFirstOrThrow();
+
+          const omitted = await insert("omitted", undefined);
+          expect(omitted.schedule).toEqual(defaults);
+          const cleared = await insert("null", null);
+          expect(cleared.schedule).toBeNull();
+          expect(cleared.is_sql_null).toBe(true);
+          const populated = await insert("array", payload);
+          expect(populated.schedule).toEqual(payload);
+          expect(populated.is_sql_null).toBe(false);
+          const empty = await insert("empty", []);
+          expect(empty.schedule).toEqual([]);
+          expect(empty.is_sql_null).toBe(false);
+
+          const update = async (schedule: Schedule | null | undefined) =>
+            connection
+              .updateTable("jsonb_contract")
+              .set({ label: "updated", schedule: jsonb(schedule) })
+              .where("id", "=", populated.id)
+              .returningAll()
+              .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+              .executeTakeFirstOrThrow();
+          expect((await update(undefined)).schedule).toEqual(payload);
+          const updatedNull = await update(null);
+          expect(updatedNull.schedule).toBeNull();
+          expect(updatedNull.is_sql_null).toBe(true);
+          expect((await update(payload)).schedule).toEqual(payload);
+          expect((await update([])).schedule).toEqual([]);
+
+          // Only object-form writes omit undefined; set(column, value) binds it.
+          const explicitUndefined = await connection
+            .updateTable("jsonb_contract")
+            .set("schedule", jsonb(undefined))
+            .where("id", "=", populated.id)
+            .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+            .executeTakeFirstOrThrow();
+          expect(explicitUndefined.is_sql_null).toBe(true);
+
+          const jsonNull = await connection
+            .updateTable("jsonb_contract")
+            .set({ schedule: sql<null>`'null'::jsonb` })
+            .where("id", "=", populated.id)
+            .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+            .returning(sql<string>`jsonb_typeof(schedule)`.as("json_type"))
+            .executeTakeFirstOrThrow();
+          expect(jsonNull.is_sql_null).toBe(false);
+          expect(jsonNull.json_type).toBe("null");
+        });
+      } finally {
+        await db.destroy();
+        await pool.close();
+      }
+    });
+
     test("SQL arrays, explicit JSON, objects and Int32Array", async () => {
       await withSession(prepare, async (session) => {
         const matrix = [
@@ -180,7 +272,7 @@ describe.each([true, false])(
       });
     });
 
-    test("jsonb supports frozen JSON, scalars and JSON null versus SQL NULL", async () => {
+    test("jsonb supports frozen JSON, scalars and SQL NULL versus explicit JSON null", async () => {
       await withSession(prepare, async (session) => {
         const frozen = Object.freeze([1, null, "two"]);
         const object = Object.freeze({ active: true });
@@ -201,9 +293,9 @@ describe.each([true, false])(
                ${jsonb(42)}::jsonb AS number,
                ${jsonb(false)}::jsonb AS boolean,
                ${jsonb('a"b\\c')}::jsonb AS string,
-               ${jsonb(null)}::jsonb AS json_null,
-               ${jsonb(null)}::jsonb IS NULL AS json_is_sql_null,
-               ${null}::jsonb IS NULL AS sql_is_null
+               'null'::jsonb AS json_null,
+               'null'::jsonb IS NULL AS json_is_sql_null,
+               ${jsonb(null)}::jsonb IS NULL AS sql_is_null
       `,
         );
         expect(row).toEqual({

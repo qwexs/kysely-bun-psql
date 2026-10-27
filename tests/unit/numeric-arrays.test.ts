@@ -8,23 +8,25 @@ const columns = [
   { name: "reals", type: 1021, table: 0 },
 ];
 
-test.each([undefined, false])(
-  "numeric arrays keep native values by default (%s)",
-  async (normalizeNumericArrays) => {
-    const row = Object.freeze({
-      ints: new Int32Array([1, 2]),
-      reals: new Float32Array([1.5, 2.5]),
-    });
-    const fake = createFakeReservedSQL({ rows: [row], columns });
-    const connection = new BunConnection(fake.reserved, normalizeNumericArrays);
-    const result = await connection.executeQuery<typeof row>(
-      CompiledQuery.raw("select"),
-    );
-    expect(result.rows[0]).toBe(row);
-    expect(result.rows[0]!.ints).toBe(row.ints);
-    expect(result.rows[0]!.reals).toBe(row.reals);
-  },
-);
+test("numeric arrays are ordinary arrays without configuration", async () => {
+  const row = Object.freeze({
+    ints: new Int32Array([1, 2]),
+    reals: new Float32Array([1.5, 2.5]),
+  });
+  const fake = createFakeReservedSQL({ rows: [row], columns });
+  const connection = new BunConnection(fake.reserved);
+  const result = await connection.executeQuery<{
+    ints: number[];
+    reals: number[];
+  }>(CompiledQuery.raw("select"));
+  expect(Array.isArray(result.rows[0]!.ints)).toBe(true);
+  expect(Array.isArray(result.rows[0]!.reals)).toBe(true);
+  expect(result.rows[0]!.ints).toEqual([1, 2]);
+  expect(result.rows[0]!.reals).toEqual([1.5, 2.5]);
+  expect(result.rows[0]).not.toBe(row);
+  expect(row.ints).toBeInstanceOf(Int32Array);
+  expect(row.reals).toBeInstanceOf(Float32Array);
+});
 
 test("numeric normalization copies only changed rows and preserves other values", async () => {
   const json = { nested: [1, 2], typed: new Int32Array([3, 4]) };
@@ -56,7 +58,7 @@ test("numeric normalization copies only changed rows and preserves other values"
       { name: "moods", type: 99999, table: 0 },
     ],
   });
-  const result = await new BunConnection(fake.reserved, true).executeQuery<
+  const result = await new BunConnection(fake.reserved).executeQuery<
     Record<string, unknown>
   >(CompiledQuery.raw("select"));
   const normalized = result.rows[0]!;
@@ -79,7 +81,7 @@ test.each([{ metadata: undefined }, { metadata: null }, { metadata: [] }])(
   async ({ metadata }) => {
     const row = { ints: new Int32Array([1, 2]) };
     const fake = createFakeReservedSQL({ rows: [row], columns: metadata });
-    const result = await new BunConnection(fake.reserved, true).executeQuery(
+    const result = await new BunConnection(fake.reserved).executeQuery(
       CompiledQuery.raw("select"),
     );
     expect(result.rows[0]).toBe(row);
@@ -111,7 +113,7 @@ test("numeric normalization requires matching column OIDs and actual value types
       { name: "unknown", type: 99999, table: 0 },
     ],
   });
-  const result = await new BunConnection(fake.reserved, true).executeQuery(
+  const result = await new BunConnection(fake.reserved).executeQuery(
     CompiledQuery.raw("select"),
   );
   expect(result.rows[0]).toBe(row);
@@ -123,7 +125,7 @@ test.each([17, 1021, 1007])(
     const row = { ints: new Int32Array([1, 2]) };
     const metadata = [columns[0]!, { name: "ints", type, table: 0 }];
     const fake = createFakeReservedSQL({ rows: [row], columns: metadata });
-    const result = await new BunConnection(fake.reserved, true).executeQuery<
+    const result = await new BunConnection(fake.reserved).executeQuery<
       typeof row
     >(CompiledQuery.raw("select"));
     expect(Array.isArray(result.rows[0]!.ints)).toBe(type === 1007);
@@ -135,7 +137,7 @@ test.each([17, 1021, 1007])(
 test("numeric normalization does not read inherited or absent row properties", async () => {
   const row = Object.create({ ints: new Int32Array([1, 2]) });
   const fake = createFakeReservedSQL({ rows: [row], columns });
-  const result = await new BunConnection(fake.reserved, true).executeQuery(
+  const result = await new BunConnection(fake.reserved).executeQuery(
     CompiledQuery.raw("select"),
   );
   expect(result.rows[0]).toBe(row);
@@ -145,7 +147,7 @@ test("numeric normalization does not read inherited or absent row properties", a
 test("numeric normalization accepts empty results with column metadata", async () => {
   const fake = createFakeReservedSQL({ columns });
   expect(
-    await new BunConnection(fake.reserved, true).executeQuery(
+    await new BunConnection(fake.reserved).executeQuery(
       CompiledQuery.raw("select"),
     ),
   ).toEqual({ rows: [] });

@@ -88,19 +88,28 @@ interface Database {
   person: { id: Generated<number>; name: string };
 }
 test("installed ESM/CJS exports and declarations", async () => {
-  const config: BunDialectConfig = { url: "postgres://unused/unused", bigint: true, normalizeNumericArrays: true };
+  const config: BunDialectConfig = { url: "postgres://unused/unused", bigint: true };
   const db = new Kysely<Database>({ dialect: new BunDialect(config) });
   try {
     const query = db.selectFrom("person").selectAll().where("name", "=", "smoke").compile();
     expect(query.sql).toBe('select * from "person" where "name" = $1');
     expect(query.parameters).toEqual(["smoke"]);
     const json: RawBuilder<readonly number[]> = jsonb(Object.freeze([1, 2]));
+    const sqlNull: null = jsonb(null);
+    const omitted: undefined = jsonb(undefined);
+    const nullable = (value: readonly number[] | null | undefined): RawBuilder<readonly number[]> | null | undefined => jsonb(value);
+    const unknown = (value: unknown): RawBuilder<NonNullable<unknown>> | null | undefined => jsonb(value);
+    expect(sqlNull).toBeNull();
+    expect(omitted).toBeUndefined();
+    expect(nullable(null)).toBeNull();
+    expect(nullable(undefined)).toBeUndefined();
+    expect(unknown(null)).toBeNull();
     const jsonArray: RawBuilder<{ id: number }[]> = jsonbArray([{ id: 1 }]);
     const array: RawBuilder<number[]> = pgArray(new Int32Array([1, 2]), "INT");
     const parameters = [json, jsonArray, array].map(value => value.toOperationNode());
     expect(parameters.every(node => node.kind === "RawNode")).toBe(true);
     const client = new SQL({ url: "postgres://unused/unused", prepare: false });
-    const externalConfig: BunDialectConfig = { sql: client, closeTimeout: 1, normalizeNumericArrays: true };
+    const externalConfig: BunDialectConfig = { sql: client, closeTimeout: 1 };
     const externalDb = new Kysely<Database>({ dialect: new BunDialect(externalConfig) });
     await externalDb.destroy();
     await client.close();

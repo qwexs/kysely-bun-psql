@@ -9,7 +9,7 @@ interface Database {
 
 type NumericRow = { ints: number[]; reals: number[] };
 
-function database(prepare: boolean, normalizeNumericArrays?: boolean) {
+function database(prepare: boolean) {
   const url = process.env["DATABASE_URL"];
   if (!url)
     throw new Error("Set DATABASE_URL to a disposable PostgreSQL database");
@@ -17,7 +17,6 @@ function database(prepare: boolean, normalizeNumericArrays?: boolean) {
     dialect: new BunDialect({
       url,
       prepare,
-      normalizeNumericArrays,
       max: 1,
       connectionTimeout: 5,
       closeTimeout: 1,
@@ -39,8 +38,8 @@ function expectArrays(row: NumericRow, reals: number[] = [1.5, 2.5]) {
 }
 
 describe.each([true, false])("numeric array reads (prepare: %s)", (prepare) => {
-  test("normalizes parameterized SELECT results without changing decoded numbers", async () => {
-    const db = database(prepare, true);
+  test("normalizes parameterized SELECT results without configuration or changed numbers", async () => {
+    const db = database(prepare);
     try {
       for (let run = 0; run < 2; run++) {
         const result = await sql<NumericRow>`
@@ -56,7 +55,7 @@ describe.each([true, false])("numeric array reads (prepare: %s)", (prepare) => {
   });
 
   test("normalizes SELECT results without parameters on repeated execution", async () => {
-    const db = database(prepare, true);
+    const db = database(prepare);
     try {
       for (let run = 0; run < 2; run++) {
         const result = await sql<NumericRow>`
@@ -69,34 +68,8 @@ describe.each([true, false])("numeric array reads (prepare: %s)", (prepare) => {
     }
   });
 
-  test.each([undefined, false])(
-    "preserves native result types when disabled (%s)",
-    async (enabled) => {
-      const db = database(prepare, enabled);
-      try {
-        const { rows } = await sql<{
-          ints: number[] | Int32Array;
-          reals: number[] | Float32Array;
-        }>`
-        select ARRAY[1,2,3]::integer[] as ints, ARRAY[1.5,2.5]::real[] as reals
-        where ${true}::boolean
-      `.execute(db);
-        expect(rows[0]!.ints).toBeInstanceOf(prepare ? Int32Array : Array);
-        expect(rows[0]!.reals).toBeInstanceOf(prepare ? Float32Array : Array);
-        expect(rows[0]!.ints).toEqual(
-          prepare ? new Int32Array([1, 2, 3]) : [1, 2, 3],
-        );
-        expect(rows[0]!.reals).toEqual(
-          prepare ? new Float32Array([1.5, 2.5]) : [1.5, 2.5],
-        );
-      } finally {
-        await db.destroy();
-      }
-    },
-  );
-
   test("handles empty, SQL NULL, nullable and multidimensional arrays", async () => {
-    const db = database(prepare, true);
+    const db = database(prepare);
     try {
       const { rows } = await sql<{
         ints: number[];
@@ -136,7 +109,7 @@ describe.each([true, false])("numeric array reads (prepare: %s)", (prepare) => {
   });
 
   test("normalizes INSERT, UPDATE and DELETE RETURNING and preserves affected counts", async () => {
-    const db = database(prepare, true);
+    const db = database(prepare);
     try {
       await db.connection().execute(async (connection) => {
         await sql`create temporary table numeric_array_read (id integer, ints integer[], reals real[])`.execute(
@@ -181,7 +154,7 @@ describe.each([true, false])("numeric array reads (prepare: %s)", (prepare) => {
       transform: SQL.toCamel,
     });
     const db = new Kysely<Database>({
-      dialect: new BunDialect({ sql: pool, normalizeNumericArrays: true }),
+      dialect: new BunDialect({ sql: pool }),
     });
     try {
       const bytes = Buffer.from([1, 2, 3]);
@@ -220,7 +193,6 @@ describe.each([true, false])("numeric array reads (prepare: %s)", (prepare) => {
           url: process.env["DATABASE_URL"],
           prepare,
           bigint,
-          normalizeNumericArrays: true,
           max: 1,
         }),
       });

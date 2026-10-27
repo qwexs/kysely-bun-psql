@@ -6,7 +6,7 @@
 
 [Kysely](https://github.com/koskimas/kysely) dialect for [PostgreSQL](https://www.postgresql.org/) using Bun's built-in SQL client under the hood.
 
-Uses [Bun's native SQL client](https://bun.com/docs/runtime/sql.md) for parameter binding, JSON and PostgreSQL arrays, pooling, and query cancellation. Targets the latest stable Bun, currently **1.4.4**, and **Kysely 0.29.7**.
+Uses [Bun's native SQL client](https://bun.com/docs/runtime/sql.md) for parameter binding, JSON and PostgreSQL arrays, pooling, and query cancellation. The dialect normalizes numeric SQL array results to ordinary JavaScript arrays. Targets the latest stable Bun, currently **1.4.4**, and **Kysely 0.29.7**.
 
 ## Installation
 
@@ -77,7 +77,7 @@ await db.destroy();
 
 Ordinary JavaScript arrays are bound as PostgreSQL arrays using Bun's native `sql.array()` helper. This includes arrays of user-defined enums when PostgreSQL can infer the element type from the query. Nested arrays retain their SQL dimensions; the dialect does not construct array literals itself.
 
-Use `jsonb(value)` to bind **any JSON value**, including arrays of primitives or objects, scalars, frozen objects/arrays and JSON `null`. It uses native `sql.json()` and works consistently with `prepare: true` and `prepare: false`:
+Use `jsonb(value)` for JSON/JSONB column values, including arrays of primitives or objects, scalars and frozen objects/arrays. Non-null values use native `sql.json()` consistently with `prepare: true` and `prepare: false`; `null` and `undefined` pass through unchanged:
 
 ```typescript
 import { jsonb, jsonbArray, pgArray } from "@qwexs/kysely-bun-psql";
@@ -105,26 +105,32 @@ const matrix = pgArray(
 ```
 
 - Always use `jsonb()` when a JavaScript array should be one JSON/JSONB value, including empty arrays and arrays of objects. An unwrapped array is bound as an SQL array; PostgreSQL may store its array literal as a JSON string instead of rejecting it.
-- `jsonb(null)` is JSON null; a bare `null` is SQL NULL.
+- `jsonb(null)` is SQL NULL, like a bare `null`.
+- `jsonb(undefined)` remains `undefined`. In object-form `.values({...})` / `.set({...})`, Kysely omits the field: INSERT can use its default and UPDATE leaves it unchanged. Nullable/optional JSON columns can use `schedule: jsonb(values.schedule)` without `Array.isArray()` or null checks.
 - `jsonbArray()` uses native `sql.array(..., "JSONB")`. Nested JS arrays are individual JSON elements, not extra SQL dimensions. `null` elements are JSON null; `undefined` elements are SQL NULL.
 - `pgArray()` accepts an element type name or an **array type OID**, matching Bun's native helper. Nested arrays represent SQL dimensions.
-- These helpers return **Kysely `RawBuilder<T>` expressions**, not serialized strings or mutated input values. Use them inside queries, not as standalone JSON values.
+- Non-null `jsonb()` values, `jsonbArray()` and `pgArray()` return **Kysely `RawBuilder<T>` expressions**, not serialized strings or mutated input values. Only `jsonb()` passes top-level `null` / `undefined` through. Use the expressions inside queries, not as standalone JSON values.
 - Model JSON columns with their actual write types. For example, `JSONColumnType<Payload, Payload, Payload>` accepts `jsonb(payload)`; Kysely's default `JSONColumnType<Payload>` expects JSON strings for writes.
+
+For a JSON null value (distinct from SQL NULL), use an explicit expression:
+
+```typescript
+import { sql } from "kysely";
+
+const jsonNull = sql<null>`'null'::jsonb`;
+```
+
+Nulls nested inside JSON objects/arrays are still JSON null. `jsonbArray()` retains its separate element semantics described above.
+
+Omission is Kysely's object-form behavior, not a general no-op guarantee: skip an UPDATE if no assignments remain after omitting undefined fields. The two-argument `.set("schedule", jsonb(undefined))` binds SQL NULL instead of skipping the assignment.
 
 ### Numeric array results
 
-By default, read results retain Bun's native types. Bun may decode `integer[]` and `real[]` as `Int32Array` / `Float32Array` in binary results, but plain arrays in text results. Arrays containing NULL elements or multiple dimensions are plain arrays. The same column can therefore return different JavaScript types depending on the query and its values. See [Bun's typed array decoding](https://bun.com/docs/runtime/sql.md#typed-arrays-and-real).
+The dialect returns top-level PostgreSQL `integer[]` and `real[]` results as **ordinary JavaScript arrays**, in both `SELECT` and `RETURNING`. This is automatic: no option or SQL `to_json()` cast is needed for validators, `.map()` or JSON responses.
 
-Enable `normalizeNumericArrays` when validators, `.map()` or JSON responses need ordinary JavaScript arrays:
+Bun may decode these columns as `Int32Array` / `Float32Array` in binary results, but plain arrays in text results. Arrays containing NULL elements or multiple dimensions are already plain arrays. The dialect normalizes typed results using PostgreSQL column metadata and the actual value type, without changing Bun's parameter binding, protocol or prepared statements. See [Bun's typed array decoding](https://bun.com/docs/runtime/sql.md#typed-arrays-and-real).
 
-```typescript
-const dialect = new BunDialect({
-  url: Bun.env.DATABASE_URL,
-  normalizeNumericArrays: true, // default: false
-});
-```
-
-This dialect-only option converts top-level `integer[]` / `real[]` typed results to plain arrays in both `SELECT` and `RETURNING`, using PostgreSQL column metadata and the actual value type. It works with internally created and externally supplied SQL clients; direct queries on a shared native client remain unchanged. Missing or unknown metadata leaves the value unchanged.
+Normalization works with internally created and externally supplied SQL clients; direct queries on a shared native client remain unchanged. Missing or unknown metadata leaves the value unchanged.
 
 Already-plain arrays, SQL NULL, JSON/JSONB, `bytea`, bigint values and custom enum-array strings are not modified. There is no recursive conversion or automatic decoding of enum arrays; use an explicit `to_jsonb(column)` projection for an ordinary JSON array, or keep your existing type-aware parser. Normalization preserves decoded numbers: it does not remove binary-versus-text rounding differences for `real`.
 
@@ -133,6 +139,8 @@ Already-plain arrays, SQL NULL, JSON/JSONB, `bytea`, bigint values and custom en
 `jsonb()` no longer marks the input with `JSONB_SYMBOL`, and `jsonbArray()` no longer returns a PostgreSQL literal masquerading as an array. Stop serializing or inspecting the helpers' return values outside queries. The deprecated `JSONB_SYMBOL` export remains for source compatibility but has no serialization effect. JSONB[] `null` elements now mean JSON null; use `undefined` for SQL NULL.
 
 Ordinary arrays now always bind as PostgreSQL arrays. Wrap arrays intended for JSON/JSONB in `jsonb()`, even if an array of objects previously worked without a helper. This is also a change from earlier v2 pass-through behavior.
+
+Since 2.1.1, `jsonb(null)` means SQL NULL rather than JSON null, and `jsonb(undefined)` preserves column omission. Replace uses intended to store JSON null with an explicit expression such as `sql<null>` with the literal `'null'::jsonb`. The removed `normalizeNumericArrays` option is no longer needed: numeric SQL array results are normalized automatically.
 
 ## Configuration
 
@@ -155,7 +163,7 @@ const dialect = new BunDialect({
 });
 ```
 
-Native `path` / `socket`, TLS modes and certificate options, `bigint`, callbacks, pool limits and startup settings are supported. See [Bun SQL connection options](https://bun.com/docs/runtime/sql.md#connection-options) for their full semantics. `closeTimeout` and `normalizeNumericArrays` are dialect-specific, not native SQL options. For `closeTimeout`, omitted means wait without a deadline; `0` closes immediately.
+Native `path` / `socket`, TLS modes and certificate options, `bigint`, callbacks, pool limits and startup settings are supported. See [Bun SQL connection options](https://bun.com/docs/runtime/sql.md#connection-options) for their full semantics. `closeTimeout` is dialect-specific, not a native SQL option: omitted means wait without a deadline; `0` closes immediately.
 
 Native `transform` is opt-in. It can rename result keys but cannot rewrite identifiers compiled by Kysely. Prefer Kysely's `CamelCasePlugin` for Kysely queries; do not stack both naming systems unintentionally.
 

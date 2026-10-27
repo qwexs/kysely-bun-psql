@@ -115,7 +115,6 @@ describe("public JSON helpers", () => {
     { name: "number", value: 42 },
     { name: "boolean", value: false },
     { name: "string", value: 'a"b\\c' },
-    { name: "JSON null", value: null },
   ])("jsonb binds $name without mutation", ({ value }) => {
     const before = JSON.stringify(value);
     const keys =
@@ -128,6 +127,13 @@ describe("public JSON helpers", () => {
     expect(parameter(expression)).toEqual(bunSql.json(value));
     expect(JSON.stringify(value)).toBe(before);
     if (keys) expect(Reflect.ownKeys(value as object)).toEqual(keys);
+  });
+
+  test.each([
+    { name: "null", value: null },
+    { name: "undefined", value: undefined },
+  ])("jsonb preserves $name without wrapping", ({ value }) => {
+    expect(jsonb(value)).toBe(value);
   });
 
   test("jsonbArray binds an empty native JSONB array", () => {
@@ -181,7 +187,8 @@ describe("public JSON helpers", () => {
 
   test("JSON helpers expose honest Kysely expression types", () => {
     expectTypeOf(jsonb({ id: 1 })).toEqualTypeOf<RawBuilder<{ id: number }>>();
-    expectTypeOf(jsonb(null)).toEqualTypeOf<RawBuilder<null>>();
+    expectTypeOf(jsonb(null)).toEqualTypeOf<null>();
+    expectTypeOf(jsonb(undefined)).toEqualTypeOf<undefined>();
     type Json = { id: number };
     type Column = JSONColumnType<Json, Json, Json>;
     expectTypeOf(jsonb({ id: 1 })).toExtend<
@@ -189,6 +196,38 @@ describe("public JSON helpers", () => {
     >();
     expectTypeOf(jsonbArray([{ id: 1 }])).toEqualTypeOf<
       RawBuilder<{ id: number }[]>
+    >();
+  });
+
+  test("jsonb preserves nullable, optional and unknown input types", () => {
+    type Json = { id: number }[];
+    const nullable = (value: Json | null) => jsonb(value);
+    const optional = (value: Json | undefined) => jsonb(value);
+    const nullish = (value: null | undefined) => jsonb(value);
+    const unknown = (value: unknown) => jsonb(value);
+    expectTypeOf<
+      ReturnType<typeof nullable>
+    >().toEqualTypeOf<RawBuilder<Json> | null>();
+    expectTypeOf<ReturnType<typeof optional>>().toEqualTypeOf<
+      RawBuilder<Json> | undefined
+    >();
+    expectTypeOf<ReturnType<typeof nullish>>().toEqualTypeOf<
+      null | undefined
+    >();
+    expectTypeOf<ReturnType<typeof unknown>>().toEqualTypeOf<
+      RawBuilder<NonNullable<unknown>> | null | undefined
+    >();
+    type Column = JSONColumnType<
+      Json | null,
+      Json | null | undefined,
+      Json | null | undefined
+    >;
+    const encode = (value: Json | null | undefined) => jsonb(value);
+    expectTypeOf<ReturnType<typeof encode>>().toEqualTypeOf<
+      RawBuilder<Json> | null | undefined
+    >();
+    expectTypeOf<ReturnType<typeof encode>>().toExtend<
+      ValueExpression<Record<never, never>, never, InsertType<Column>>
     >();
   });
 });
@@ -203,7 +242,7 @@ describe("PostgreSQL helper adapter isolation", () => {
       const script = `
       import { SQL, sql as ambient } from "bun";
       import { expect, spyOn } from "bun:test";
-      import { Kysely } from "kysely";
+      import { Kysely, sql } from "kysely";
       import { BunDialect, jsonb, jsonbArray, pgArray } from "../../src/index.ts";
 
       // Neither the helper-only client nor the dialect may execute SQL here.
@@ -219,7 +258,7 @@ describe("PostgreSQL helper adapter isolation", () => {
         expect(ambient.options.adapter).toBe(${JSON.stringify(adapter)});
         const compiled = db.selectNoFrom([
           jsonb({ id: 1 }).as("object"),
-          jsonb(null).as("json_null"),
+          sql.val(jsonb(null)).as("sql_null"),
           jsonbArray([{ id: 1 }, undefined, [1, 2]]).as("payloads"),
           pgArray([1, undefined], "INT").as("ids"),
           pgArray(new Float32Array([1.5, 2.5]), "REAL").as("floats"),
@@ -227,11 +266,11 @@ describe("PostgreSQL helper adapter isolation", () => {
         ]).compile();
         expect(compiled.sql).toContain("$1");
         expect(compiled.parameters).toHaveLength(6);
-        const [object, jsonNull, payloads, ids, floats, moods] = compiled.parameters;
+        const [object, sqlNull, payloads, ids, floats, moods] = compiled.parameters;
         expect(object.constructor.name).toBe("SQLJSONParameter");
-        expect(jsonNull.constructor.name).toBe("SQLJSONParameter");
         expect(object).toEqual(client.json({ id: 1 }));
-        expect(jsonNull).toEqual(client.json(null));
+        expect(sqlNull).toBeNull();
+        expect(jsonb(undefined)).toBeUndefined();
         for (const parameter of [payloads, ids, floats, moods]) {
           expect(parameter.constructor.name).toBe("SQLArrayParameter");
         }

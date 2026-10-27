@@ -14,12 +14,6 @@ type DialectOptions = {
    * Has no effect for an external client unless `ownsSql` is true.
    */
   closeTimeout?: number;
-  /**
-   * Return top-level PostgreSQL integer[] and real[] typed results as plain arrays.
-   * Defaults to false (native Bun values). Does not parse enum arrays or change
-   * JSON, bytea, bigint or direct queries on an externally supplied SQL client.
-   */
-  normalizeNumericArrays?: boolean;
 };
 
 /**

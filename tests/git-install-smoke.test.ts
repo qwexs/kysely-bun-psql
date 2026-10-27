@@ -163,6 +163,13 @@ test("Git-installed exports, declarations and compiled helpers", async () => {
     expect(query.sql).toBe('select * from "person" where "name" = $1');
     expect(query.parameters).toEqual(["git-smoke"]);
     const json: RawBuilder<readonly number[]> = jsonb(Object.freeze([1, 2]));
+    const sqlNull: null = jsonb(null);
+    const omitted: undefined = jsonb(undefined);
+    const nullable = (value: readonly number[] | null | undefined): RawBuilder<readonly number[]> | null | undefined => jsonb(value);
+    expect(sqlNull).toBeNull();
+    expect(omitted).toBeUndefined();
+    expect(nullable(null)).toBeNull();
+    expect(nullable(undefined)).toBeUndefined();
     const jsonArray: RawBuilder<{ id: number }[]> = jsonbArray([{ id: 1 }]);
     const array: RawBuilder<number[]> = pgArray(new Int32Array([1, 2]), "INT");
     const helpers = db.selectNoFrom([

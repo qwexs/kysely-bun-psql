@@ -39,10 +39,8 @@ describe("BunDriver native config types", () => {
         { adapter: "postgres", ownsSql: true, closeTimeout: 0.5 },
         { sql: client },
         { sql: client, ownsSql: true, closeTimeout: 2 },
-        { url: unusedUrl, normalizeNumericArrays: true },
-        { sql: client, normalizeNumericArrays: false },
       ] satisfies BunDialectConfig[];
-      expect(configs).toHaveLength(15);
+      expect(configs).toHaveLength(13);
 
       expectTypeOf<BunDialectConfig["password"]>().toEqualTypeOf<
         SQL.PostgresOrMySQLOptions["password"]
@@ -54,11 +52,10 @@ describe("BunDriver native config types", () => {
         SQL.PostgresOrMySQLOptions["transform"]
       >();
 
-      expectTypeOf<BunDialectConfig["normalizeNumericArrays"]>().toEqualTypeOf<
-        boolean | undefined
-      >();
-      // @ts-expect-error Numeric normalization is a boolean dialect option.
-      acceptConfig({ normalizeNumericArrays: "true" });
+      // @ts-expect-error Numeric arrays are normalized without a configuration switch.
+      acceptConfig({ url: unusedUrl, normalizeNumericArrays: true });
+      // @ts-expect-error Shared clients do not need a normalization switch either.
+      acceptConfig({ sql: client, normalizeNumericArrays: false });
       // @ts-expect-error External clients cannot be mixed with constructor options.
       acceptConfig({ sql: client, url: unusedUrl });
       // @ts-expect-error Even shared pool/transform options belong to the client.
@@ -119,7 +116,7 @@ describe("BunDriver client lifecycle", () => {
     }
   });
 
-  test("passes numeric normalization to connections without reconfiguring a shared client", async () => {
+  test("normalizes numeric results without reconfiguring a shared client", async () => {
     const client = createClient();
     const ints = new Int32Array([1, 2]);
     const fake = createFakeReservedSQL({
@@ -127,7 +124,7 @@ describe("BunDriver client lifecycle", () => {
       columns: [{ name: "ints", type: 1007, table: 0 }],
     });
     const reserve = spyOn(client, "reserve").mockResolvedValue(fake.reserved);
-    const driver = new BunDriver({ sql: client, normalizeNumericArrays: true });
+    const driver = new BunDriver({ sql: client });
     try {
       const connection = await driver.acquireConnection();
       const result = await connection.executeQuery<{ ints: number[] }>(

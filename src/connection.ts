@@ -53,13 +53,11 @@ function normalizeNumericArrayRows<R>(
 
 export class BunConnection implements DatabaseConnection {
   #reservedConnection: ReservedSQL;
-  readonly #normalizeNumericArrays: boolean;
   #activeQuery?: ActiveQuery;
   #releasing = false;
 
-  constructor(reservedConnection: ReservedSQL, normalizeNumericArrays = false) {
+  constructor(reservedConnection: ReservedSQL) {
     this.#reservedConnection = reservedConnection;
-    this.#normalizeNumericArrays = normalizeNumericArrays;
   }
 
   async beginTransaction(settings: TransactionSettings): Promise<void> {
@@ -150,10 +148,10 @@ export class BunConnection implements DatabaseConnection {
       // Do not race against the signal: native settlement owns the reservation.
       // Kysely itself races the public operation and preserves signal.reason.
       const result = await query;
-      const nativeRows = Array.from(result.values()) as R[];
-      const rows = this.#normalizeNumericArrays
-        ? normalizeNumericArrayRows(nativeRows, result.columns)
-        : nativeRows;
+      const rows = normalizeNumericArrayRows(
+        Array.from(result.values()) as R[],
+        result.columns,
+      );
       if (
         result.command !== null &&
         ["INSERT", "UPDATE", "DELETE", "MERGE"].includes(result.command)

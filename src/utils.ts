@@ -42,16 +42,22 @@ export function freeze<T>(obj: T): Readonly<T> {
 }
 
 /**
- * Bind a value as JSON using Bun's native JSON parameter helper.
- * Supports objects, arrays (including frozen arrays), scalars and JSON null,
- * without mutating the input. Works with prepare: true and prepare: false.
- * Returns a Kysely expression, not the original value or serialized JSON text.
+ * Bind a JSON column value using Bun's native JSON parameter helper.
+ * Non-null objects, arrays (including frozen arrays) and scalars become Kysely
+ * expressions without mutation, with prepare: true and prepare: false.
+ * null stays SQL NULL; undefined stays undefined for Kysely's object-form writes.
+ * For JSON null, use an explicit expression such as sql<null>`'null'::jsonb`.
  *
  * @example
  * db.insertInto('table').values({ tags: jsonb(["tag1", "tag2"]) }).execute();
  */
-export function jsonb<T>(value: T): RawBuilder<T> {
-  return sql.val(helperSql.json(value)).$castTo<T>();
+export function jsonb<T extends null | undefined>(value: T): T;
+export function jsonb<T>(
+  value: T,
+): RawBuilder<NonNullable<T>> | (T & (null | undefined));
+export function jsonb(value: unknown): RawBuilder<unknown> | null | undefined {
+  if (value === null || value === undefined) return value;
+  return sql.val(helperSql.json(value)).$castTo<unknown>();
 }
 
 /**

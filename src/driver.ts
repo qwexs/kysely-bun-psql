@@ -16,16 +16,9 @@ export class BunDriver implements Driver {
   readonly #sql: SQL;
   readonly #ownsSql: boolean;
   readonly #closeTimeout: number | undefined;
-  readonly #normalizeNumericArrays: boolean;
 
   constructor(config: BunDialectConfig) {
-    const {
-      sql,
-      ownsSql,
-      closeTimeout,
-      normalizeNumericArrays = false,
-      ...options
-    } = freeze({ ...config });
+    const { sql, ownsSql, closeTimeout, ...options } = freeze({ ...config });
 
     if (
       closeTimeout !== undefined &&
@@ -59,7 +52,6 @@ export class BunDriver implements Driver {
     this.#sql = client;
     this.#ownsSql = sql === undefined || (ownsSql ?? false);
     this.#closeTimeout = closeTimeout;
-    this.#normalizeNumericArrays = normalizeNumericArrays;
   }
 
   async init(): Promise<void> {
@@ -72,7 +64,7 @@ export class BunDriver implements Driver {
     // For transaction safety, always use a reserved connection. The native
     // signal cancels pool waiting, not queries on an acquired connection.
     const reserved = await this.#sql.reserve(options);
-    return new BunConnection(reserved, this.#normalizeNumericArrays);
+    return new BunConnection(reserved);
   }
 
   async beginTransaction(
