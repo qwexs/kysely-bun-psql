@@ -1,6 +1,6 @@
 {
   "name": "@qwexs/kysely-bun-psql",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "packageManager": "bun@1.4.4",
   "description": "Kysely dialect for PostgreSQL using Bun's native SQL client",
   "repository": {
@@ -42,7 +42,7 @@
     "prepack": "bun --bun run build",
     "test": "bun run test:unit && bun run test:integration",
     "test:unit": "bun test ./tests/unit",
-    "test:integration": "bun test --preload ./tests/setup.ts ./tests/impl.test.ts ./tests/dialect.test.ts ./tests/bigint.test.ts ./tests/native-parameters.test.ts ./tests/native-driver.test.ts ./tests/native-connection.test.ts",
+    "test:integration": "bun test --preload ./tests/setup.ts ./tests/impl.test.ts ./tests/dialect.test.ts ./tests/bigint.test.ts ./tests/native-parameters.test.ts ./tests/native-driver.test.ts ./tests/native-connection.test.ts ./tests/numeric-arrays.test.ts",
     "test:dialect": "bun test --preload ./tests/setup.ts ./tests/dialect.test.ts",
     "test:package": "bun run build && bun test ./tests/package-smoke.test.ts ./tests/git-install-smoke.test.ts",
     "test:ci": "bun run fmt:check && bun run type-check && bun run test && bun run test:package",

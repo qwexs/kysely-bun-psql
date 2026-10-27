@@ -5,6 +5,7 @@ type FakeResultOptions<Row> = {
   command?: string;
   count?: number;
   affectedRows?: number;
+  columns?: readonly SQL.ResultColumn[] | null;
   error?: Error;
   deferred?: boolean;
   releaseError?: Error;
@@ -25,6 +26,7 @@ export function createFakeReservedSQL<Row = Record<string, unknown>>(
     command: options.command ?? "SELECT",
     count: options.count,
     affectedRows: options.affectedRows,
+    columns: options.columns,
   });
   const calls: { sql: string; parameters: unknown[] }[] = [];
   const queries: FakeQuery[] = [];

@@ -16,13 +16,50 @@ type ActiveQuery = {
   cancelRequested: boolean;
 };
 
+const INT4_ARRAY_OID = 1007;
+const FLOAT4_ARRAY_OID = 1021;
+
+function normalizeNumericArrayRows<R>(
+  rows: R[],
+  columns: readonly SQL.ResultColumn[] | null | undefined,
+): R[] {
+  // Object rows keep the last duplicate name, even if its type is not numeric.
+  const typesByName = new Map<string, number>();
+  for (const column of columns ?? []) {
+    typesByName.set(column.name, column.type);
+  }
+  const numericColumns = [...typesByName].filter(
+    ([, type]) => type === INT4_ARRAY_OID || type === FLOAT4_ARRAY_OID,
+  );
+  if (!numericColumns.length || !rows.length) return rows;
+
+  return rows.map((row) => {
+    if (row === null || typeof row !== "object") return row;
+    let normalized = row;
+    for (const [name, type] of numericColumns) {
+      if (!Object.hasOwn(row, name)) continue;
+      const value = (row as Record<string, unknown>)[name];
+      if (
+        (type === INT4_ARRAY_OID && value instanceof Int32Array) ||
+        (type === FLOAT4_ARRAY_OID && value instanceof Float32Array)
+      ) {
+        if (normalized === row) normalized = { ...row };
+        (normalized as Record<string, unknown>)[name] = Array.from(value);
+      }
+    }
+    return normalized;
+  });
+}
+
 export class BunConnection implements DatabaseConnection {
   #reservedConnection: ReservedSQL;
+  readonly #normalizeNumericArrays: boolean;
   #activeQuery?: ActiveQuery;
   #releasing = false;
 
-  constructor(reservedConnection: ReservedSQL) {
+  constructor(reservedConnection: ReservedSQL, normalizeNumericArrays = false) {
     this.#reservedConnection = reservedConnection;
+    this.#normalizeNumericArrays = normalizeNumericArrays;
   }
 
   async beginTransaction(settings: TransactionSettings): Promise<void> {
@@ -113,7 +150,10 @@ export class BunConnection implements DatabaseConnection {
       // Do not race against the signal: native settlement owns the reservation.
       // Kysely itself races the public operation and preserves signal.reason.
       const result = await query;
-      const rows = Array.from(result.values()) as R[];
+      const nativeRows = Array.from(result.values()) as R[];
+      const rows = this.#normalizeNumericArrays
+        ? normalizeNumericArrayRows(nativeRows, result.columns)
+        : nativeRows;
       if (
         result.command !== null &&
         ["INSERT", "UPDATE", "DELETE", "MERGE"].includes(result.command)

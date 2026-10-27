@@ -110,7 +110,23 @@ const matrix = pgArray(
 - `pgArray()` accepts an element type name or an **array type OID**, matching Bun's native helper. Nested arrays represent SQL dimensions.
 - These helpers return **Kysely `RawBuilder<T>` expressions**, not serialized strings or mutated input values. Use them inside queries, not as standalone JSON values.
 - Model JSON columns with their actual write types. For example, `JSONColumnType<Payload, Payload, Payload>` accepts `jsonb(payload)`; Kysely's default `JSONColumnType<Payload>` expects JSON strings for writes.
-- Bun may decode `integer[]` and `real[]` as `Int32Array` / `Float32Array` in binary results, but plain arrays in text results. Nullable or multidimensional arrays are plain arrays. Use `Array.from(value)` when your application needs a consistent array representation.
+
+### Numeric array results
+
+By default, read results retain Bun's native types. Bun may decode `integer[]` and `real[]` as `Int32Array` / `Float32Array` in binary results, but plain arrays in text results. Arrays containing NULL elements or multiple dimensions are plain arrays. The same column can therefore return different JavaScript types depending on the query and its values. See [Bun's typed array decoding](https://bun.com/docs/runtime/sql.md#typed-arrays-and-real).
+
+Enable `normalizeNumericArrays` when validators, `.map()` or JSON responses need ordinary JavaScript arrays:
+
+```typescript
+const dialect = new BunDialect({
+  url: Bun.env.DATABASE_URL,
+  normalizeNumericArrays: true, // default: false
+});
+```
+
+This dialect-only option converts top-level `integer[]` / `real[]` typed results to plain arrays in both `SELECT` and `RETURNING`, using PostgreSQL column metadata and the actual value type. It works with internally created and externally supplied SQL clients; direct queries on a shared native client remain unchanged. Missing or unknown metadata leaves the value unchanged.
+
+Already-plain arrays, SQL NULL, JSON/JSONB, `bytea`, bigint values and custom enum-array strings are not modified. There is no recursive conversion or automatic decoding of enum arrays; use an explicit `to_jsonb(column)` projection for an ordinary JSON array, or keep your existing type-aware parser. Normalization preserves decoded numbers: it does not remove binary-versus-text rounding differences for `real`.
 
 ### Migration from earlier helper behavior
 
@@ -139,7 +155,7 @@ const dialect = new BunDialect({
 });
 ```
 
-Native `path` / `socket`, TLS modes and certificate options, `bigint`, callbacks, pool limits and startup settings are supported. See [Bun SQL connection options](https://bun.com/docs/runtime/sql.md#connection-options) for their full semantics. `closeTimeout` is dialect-specific: omitted means wait without a deadline; `0` closes immediately.
+Native `path` / `socket`, TLS modes and certificate options, `bigint`, callbacks, pool limits and startup settings are supported. See [Bun SQL connection options](https://bun.com/docs/runtime/sql.md#connection-options) for their full semantics. `closeTimeout` and `normalizeNumericArrays` are dialect-specific, not native SQL options. For `closeTimeout`, omitted means wait without a deadline; `0` closes immediately.
 
 Native `transform` is opt-in. It can rename result keys but cannot rewrite identifiers compiled by Kysely. Prefer Kysely's `CamelCasePlugin` for Kysely queries; do not stack both naming systems unintentionally.
 

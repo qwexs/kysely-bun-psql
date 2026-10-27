@@ -7,13 +7,19 @@ type PostgresOptions = Omit<
   adapter?: "postgres";
 };
 
-type PoolLifecycleOptions = {
+type DialectOptions = {
   /**
    * Maximum seconds to wait for running queries when closing an owned pool.
    * Zero closes immediately. If omitted, Bun waits without a deadline.
    * Has no effect for an external client unless `ownsSql` is true.
    */
   closeTimeout?: number;
+  /**
+   * Return top-level PostgreSQL integer[] and real[] typed results as plain arrays.
+   * Defaults to false (native Bun values). Does not parse enum arrays or change
+   * JSON, bytea, bigint or direct queries on an externally supplied SQL client.
+   */
+  normalizeNumericArrays?: boolean;
 };
 
 /**
@@ -29,7 +35,7 @@ type PoolLifecycleOptions = {
  *
  * @see https://bun.com/docs/runtime/sql
  */
-export type BunDialectConfig = PoolLifecycleOptions &
+export type BunDialectConfig = DialectOptions &
   (
     | (PostgresOptions & {
         sql?: never;

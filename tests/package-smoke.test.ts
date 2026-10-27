@@ -88,7 +88,7 @@ interface Database {
   person: { id: Generated<number>; name: string };
 }
 test("installed ESM/CJS exports and declarations", async () => {
-  const config: BunDialectConfig = { url: "postgres://unused/unused", bigint: true };
+  const config: BunDialectConfig = { url: "postgres://unused/unused", bigint: true, normalizeNumericArrays: true };
   const db = new Kysely<Database>({ dialect: new BunDialect(config) });
   try {
     const query = db.selectFrom("person").selectAll().where("name", "=", "smoke").compile();
@@ -100,7 +100,7 @@ test("installed ESM/CJS exports and declarations", async () => {
     const parameters = [json, jsonArray, array].map(value => value.toOperationNode());
     expect(parameters.every(node => node.kind === "RawNode")).toBe(true);
     const client = new SQL({ url: "postgres://unused/unused", prepare: false });
-    const externalConfig: BunDialectConfig = { sql: client, closeTimeout: 1 };
+    const externalConfig: BunDialectConfig = { sql: client, closeTimeout: 1, normalizeNumericArrays: true };
     const externalDb = new Kysely<Database>({ dialect: new BunDialect(externalConfig) });
     await externalDb.destroy();
     await client.close();
