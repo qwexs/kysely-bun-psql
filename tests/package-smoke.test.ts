@@ -81,11 +81,13 @@ test("published package installs and exposes working runtime and type entry poin
       `
 import { expect, test } from "bun:test";
 import { SQL } from "bun";
-import { Kysely, type Generated, type RawBuilder } from "kysely";
+import { Kysely, type Generated, type JSONColumnType, type RawBuilder } from "kysely";
 import { BunDialect, jsonb, jsonbArray, pgArray, type BunDialectConfig } from ${JSON.stringify(manifest.name)};
 
+type Payload = readonly { id: number }[];
 interface Database {
   person: { id: Generated<number>; name: string };
+  events: { data: JSONColumnType<Payload, Payload, Payload>; tags: readonly string[] };
 }
 test("installed ESM/CJS exports and declarations", async () => {
   const config: BunDialectConfig = { url: "postgres://unused/unused", bigint: true };
@@ -94,6 +96,13 @@ test("installed ESM/CJS exports and declarations", async () => {
     const query = db.selectFrom("person").selectAll().where("name", "=", "smoke").compile();
     expect(query.sql).toBe('select * from "person" where "name" = $1');
     expect(query.parameters).toEqual(["smoke"]);
+    const payload: Payload = Object.freeze([{ id: 1 }]);
+    const tags = Object.freeze(["bun", "sql"]);
+    const insert = db.insertInto("events").values({ data: payload, tags }).compile();
+    expect(insert.parameters[0]).toBe(payload);
+    expect(insert.parameters[1]).toBe(tags);
+    const update = db.updateTable("events").set({ data: payload }).compile();
+    expect(update.parameters[0]).toBe(payload);
     const json: RawBuilder<readonly number[]> = jsonb(Object.freeze([1, 2]));
     const sqlNull: null = jsonb(null);
     const omitted: undefined = jsonb(undefined);

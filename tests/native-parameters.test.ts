@@ -10,7 +10,6 @@ import {
   type RawBuilder,
 } from "kysely";
 import { BunDialect, jsonb, jsonbArray, pgArray } from "../src/index";
-import { transformValue } from "../src/utils";
 
 async function withSession(
   prepare: boolean,
@@ -33,10 +32,7 @@ function execute<T>(session: ReservedSQL, expression: RawBuilder<T>) {
     expression.toOperationNode(),
     createQueryId(),
   );
-  return session.unsafe<T[]>(
-    compiled.sql,
-    compiled.parameters.map(transformValue),
-  );
+  return session.unsafe<T[]>(compiled.sql, compiled.parameters);
 }
 
 describe.each([true, false])(
@@ -83,7 +79,7 @@ describe.each([true, false])(
         const inserted = await db
           .insertInto("array_contract")
           .values({
-            moods,
+            moods: pgArray(moods),
             tags,
             data: jsonb([1, null, "two"]),
             objects: jsonb([{ id: 1 }, { id: 2 }]),
@@ -108,7 +104,7 @@ describe.each([true, false])(
 
         const updated = await db
           .updateTable("array_contract")
-          .set({ moods: [], tags: [], data: jsonb([]) })
+          .set({ moods: pgArray([]), tags: [], data: jsonb([]) })
           .where("id", "=", inserted.id)
           .returning([
             "tags",
@@ -125,96 +121,328 @@ describe.each([true, false])(
       }
     });
 
-    test("jsonb preserves omitted fields, SQL NULL and JSON arrays in Kysely writes", async () => {
-      type Schedule = { day: string; slots: (number | null)[] }[];
+    test("Kysely writes bare JSON arrays and objects without storing JSON strings", async () => {
+      type JsonValue =
+        | string
+        | number
+        | boolean
+        | null
+        | readonly JsonValue[]
+        | { readonly [key: string]: JsonValue };
       interface Database {
-        jsonb_contract: {
+        native_json_contract: {
           id: Generated<number>;
-          label: string;
-          schedule: ColumnType<
-            Schedule | null,
-            Schedule | null | undefined,
-            Schedule | null | undefined
-          >;
+          document: ColumnType<JsonValue, JsonValue, JsonValue>;
+          data: ColumnType<JsonValue, JsonValue, JsonValue>;
         };
       }
+      const payloads: JsonValue[] = [
+        [],
+        {},
+        [1, 2, 3],
+        [true, false, null],
+        ["NULL", 'a"b\\c', "a,b", "{x}", ""],
+        [{ id: 1 }, { id: 2, tags: ["nested"] }],
+        [1, "two", false, null, { nested: [3, null] }],
+        [
+          [1, 2],
+          [3, 4],
+        ],
+        { schedule: [{ day: "MONDAY", slots: [1, null, 3] }] },
+        Object.freeze([Object.freeze({ id: 1 }), Object.freeze([true, null])]),
+        Object.freeze({ tags: Object.freeze(["frozen", "array"]) }),
+      ];
+      const before = structuredClone(payloads);
       const url = process.env["DATABASE_URL"];
-      if (!url)
-        throw new Error("Set DATABASE_URL to a disposable PostgreSQL database");
+      if (!url) throw new Error("Set DATABASE_URL and preload tests/setup.ts");
       const pool = new SQL(url, { prepare, max: 1 });
       const db = new Kysely<Database>({
         dialect: new BunDialect({ sql: pool }),
       });
       try {
         await db.connection().execute(async (connection) => {
-          await sql`create temporary table jsonb_contract (
-            id serial primary key, label text not null,
-            schedule jsonb default '[{"day":"default","slots":[]}]'::jsonb
+          await sql`create temporary table native_json_contract (
+            id serial primary key, document json not null, data jsonb not null
           )`.execute(connection);
-          const defaults: Schedule = [{ day: "default", slots: [] }];
-          const payload: Schedule = [{ day: "MONDAY", slots: [1, null, 3] }];
-          const insert = async (
-            label: string,
-            schedule: Schedule | null | undefined,
-          ) =>
-            connection
-              .insertInto("jsonb_contract")
-              .values({ label, schedule: jsonb(schedule) })
+          const types = [
+            sql<string>`json_typeof(document)`.as("document_type"),
+            sql<string>`jsonb_typeof(data)`.as("data_type"),
+          ];
+          for (const value of payloads) {
+            const kind = Array.isArray(value) ? "array" : "object";
+            const inserted = await connection
+              .insertInto("native_json_contract")
+              .values({ document: value, data: value })
               .returningAll()
-              .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+              .returning(types)
               .executeTakeFirstOrThrow();
+            expect(inserted).toEqual({
+              id: inserted.id,
+              document: value,
+              data: value,
+              document_type: kind,
+              data_type: kind,
+            });
 
-          const omitted = await insert("omitted", undefined);
-          expect(omitted.schedule).toEqual(defaults);
-          const cleared = await insert("null", null);
-          expect(cleared.schedule).toBeNull();
-          expect(cleared.is_sql_null).toBe(true);
-          const populated = await insert("array", payload);
-          expect(populated.schedule).toEqual(payload);
-          expect(populated.is_sql_null).toBe(false);
-          const empty = await insert("empty", []);
-          expect(empty.schedule).toEqual([]);
-          expect(empty.is_sql_null).toBe(false);
+            if (Array.isArray(value)) {
+              // A predicate array is normally a Kysely list; sql.val binds one JSON value.
+              const matched = await connection
+                .selectFrom("native_json_contract")
+                .select("id")
+                .where("id", "=", inserted.id)
+                .where("data", "=", sql.val(value))
+                .execute();
+              expect(matched).toEqual([{ id: inserted.id }]);
+            }
 
-          const update = async (schedule: Schedule | null | undefined) =>
-            connection
-              .updateTable("jsonb_contract")
-              .set({ label: "updated", schedule: jsonb(schedule) })
-              .where("id", "=", populated.id)
+            const replacement = { previous: value };
+            const updated = await connection
+              .updateTable("native_json_contract")
+              .set({ document: replacement, data: replacement })
+              .where("id", "=", inserted.id)
               .returningAll()
-              .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+              .returning(types)
               .executeTakeFirstOrThrow();
-          expect((await update(undefined)).schedule).toEqual(payload);
-          const updatedNull = await update(null);
-          expect(updatedNull.schedule).toBeNull();
-          expect(updatedNull.is_sql_null).toBe(true);
-          expect((await update(payload)).schedule).toEqual(payload);
-          expect((await update([])).schedule).toEqual([]);
+            expect(updated).toEqual({
+              id: inserted.id,
+              document: replacement,
+              data: replacement,
+              document_type: "object",
+              data_type: "object",
+            });
+            const restored = await connection
+              .updateTable("native_json_contract")
+              .set({ document: value, data: value })
+              .where("id", "=", inserted.id)
+              .returningAll()
+              .returning(types)
+              .executeTakeFirstOrThrow();
+            expect(restored).toEqual(inserted);
+          }
 
-          // Only object-form writes omit undefined; set(column, value) binds it.
-          const explicitUndefined = await connection
-            .updateTable("jsonb_contract")
-            .set("schedule", jsonb(undefined))
-            .where("id", "=", populated.id)
-            .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
-            .executeTakeFirstOrThrow();
-          expect(explicitUndefined.is_sql_null).toBe(true);
-
-          const jsonNull = await connection
-            .updateTable("jsonb_contract")
-            .set({ schedule: sql<null>`'null'::jsonb` })
-            .where("id", "=", populated.id)
-            .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
-            .returning(sql<string>`jsonb_typeof(schedule)`.as("json_type"))
-            .executeTakeFirstOrThrow();
-          expect(jsonNull.is_sql_null).toBe(false);
-          expect(jsonNull.json_type).toBe("null");
+          // Scalars still use an explicit helper for consistent prepared/unprepared binding.
+          for (const value of [42, false, 'a"b\\c']) {
+            const inserted = await connection
+              .insertInto("native_json_contract")
+              .values({ document: jsonb(value), data: jsonb(value) })
+              .returningAll()
+              .returning(types)
+              .executeTakeFirstOrThrow();
+            expect(inserted.document).toEqual(value);
+            expect(inserted.data).toEqual(value);
+            expect(inserted.document_type).toBe(typeof value);
+            expect(inserted.data_type).toBe(typeof value);
+          }
+          expect(payloads).toEqual(before);
         });
       } finally {
         await db.destroy();
         await pool.close();
       }
     });
+
+    test("Kysely writes native int[] and text[] without wrappers or mutation", async () => {
+      interface Database {
+        native_array_contract: {
+          id: Generated<number>;
+          ints: readonly (number | null)[];
+          texts: readonly (string | null)[];
+          matrix: readonly (readonly (number | null)[])[];
+          text_matrix: readonly (readonly (string | null)[])[];
+        };
+      }
+      const values = {
+        ints: Object.freeze([1, null, -3]),
+        texts: Object.freeze([
+          "",
+          "null",
+          "NULL",
+          null,
+          'a"b\\c',
+          "a,b",
+          "{x}",
+          "line\nbreak",
+        ]),
+        matrix: Object.freeze([
+          Object.freeze([1, null]),
+          Object.freeze([-2, 3]),
+        ]),
+        text_matrix: Object.freeze([
+          Object.freeze(["a,b", null]),
+          Object.freeze(['a"b\\c', "NULL"]),
+        ]),
+      };
+      const before = structuredClone(values);
+      const url = process.env["DATABASE_URL"];
+      if (!url) throw new Error("Set DATABASE_URL and preload tests/setup.ts");
+      const pool = new SQL(url, { prepare, max: 1 });
+      const db = new Kysely<Database>({
+        dialect: new BunDialect({ sql: pool }),
+      });
+      try {
+        await db.connection().execute(async (connection) => {
+          await sql`create temporary table native_array_contract (
+            id serial primary key, ints int[], texts text[],
+            matrix int[][], text_matrix text[][]
+          )`.execute(connection);
+          const dimensions = [
+            sql<string | null>`array_dims(ints)`.as("int_dims"),
+            sql<string | null>`array_dims(texts)`.as("text_dims"),
+            sql<string | null>`array_dims(matrix)`.as("matrix_dims"),
+            sql<string | null>`array_dims(text_matrix)`.as("text_matrix_dims"),
+          ];
+          const inserted = await connection
+            .insertInto("native_array_contract")
+            .values(values)
+            .returningAll()
+            .returning(dimensions)
+            .executeTakeFirstOrThrow();
+          expect(inserted).toEqual({
+            id: inserted.id,
+            ...values,
+            int_dims: "[1:3]",
+            text_dims: "[1:8]",
+            matrix_dims: "[1:2][1:2]",
+            text_matrix_dims: "[1:2][1:2]",
+          });
+          const empty = await connection
+            .updateTable("native_array_contract")
+            .set({ ints: [], texts: [], matrix: [], text_matrix: [] })
+            .where("id", "=", inserted.id)
+            .returningAll()
+            .returning(dimensions)
+            .executeTakeFirstOrThrow();
+          expect(Array.from(empty.ints)).toEqual([]);
+          expect(empty.texts).toEqual([]);
+          expect(empty.matrix).toEqual([]);
+          expect(empty.text_matrix).toEqual([]);
+          expect(empty.int_dims).toBeNull();
+          expect(empty.text_dims).toBeNull();
+          expect(empty.matrix_dims).toBeNull();
+          expect(empty.text_matrix_dims).toBeNull();
+          const restored = await connection
+            .updateTable("native_array_contract")
+            .set(values)
+            .where("id", "=", inserted.id)
+            .returningAll()
+            .returning(dimensions)
+            .executeTakeFirstOrThrow();
+          expect(restored).toEqual(inserted);
+          expect(values).toEqual(before);
+        });
+      } finally {
+        await db.destroy();
+        await pool.close();
+      }
+    });
+
+    test.each([false, true])(
+      "Kysely preserves defaults, omission and SQL NULL (jsonb helper: %s)",
+      async (useHelper) => {
+        type Schedule = { day: string; slots: (number | null)[] }[];
+        interface Database {
+          jsonb_contract: {
+            id: Generated<number>;
+            label: string;
+            schedule: ColumnType<
+              Schedule | null,
+              Schedule | null | undefined,
+              Schedule | null | undefined
+            >;
+          };
+        }
+        const url = process.env["DATABASE_URL"];
+        if (!url)
+          throw new Error(
+            "Set DATABASE_URL to a disposable PostgreSQL database",
+          );
+        const pool = new SQL(url, { prepare, max: 1 });
+        const db = new Kysely<Database>({
+          dialect: new BunDialect({ sql: pool }),
+        });
+        try {
+          await db.connection().execute(async (connection) => {
+            await sql`create temporary table jsonb_contract (
+            id serial primary key, label text not null,
+            schedule jsonb default '[{"day":"default","slots":[]}]'::jsonb
+          )`.execute(connection);
+            const defaults: Schedule = [{ day: "default", slots: [] }];
+            const payload: Schedule = [{ day: "MONDAY", slots: [1, null, 3] }];
+            const insert = async (
+              label: string,
+              schedule: Schedule | null | undefined,
+            ) =>
+              connection
+                .insertInto("jsonb_contract")
+                .values({
+                  label,
+                  schedule: useHelper ? jsonb(schedule) : schedule,
+                })
+                .returningAll()
+                .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+                .executeTakeFirstOrThrow();
+
+            const missing = await connection
+              .insertInto("jsonb_contract")
+              .values({ label: "missing" })
+              .returningAll()
+              .executeTakeFirstOrThrow();
+            expect(missing.schedule).toEqual(defaults);
+            const omitted = await insert("omitted", undefined);
+            expect(omitted.schedule).toEqual(defaults);
+            const cleared = await insert("null", null);
+            expect(cleared.schedule).toBeNull();
+            expect(cleared.is_sql_null).toBe(true);
+            const populated = await insert("array", payload);
+            expect(populated.schedule).toEqual(payload);
+            expect(populated.is_sql_null).toBe(false);
+            const empty = await insert("empty", []);
+            expect(empty.schedule).toEqual([]);
+            expect(empty.is_sql_null).toBe(false);
+
+            const update = async (schedule: Schedule | null | undefined) =>
+              connection
+                .updateTable("jsonb_contract")
+                .set({
+                  label: "updated",
+                  schedule: useHelper ? jsonb(schedule) : schedule,
+                })
+                .where("id", "=", populated.id)
+                .returningAll()
+                .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+                .executeTakeFirstOrThrow();
+            expect((await update(undefined)).schedule).toEqual(payload);
+            const updatedNull = await update(null);
+            expect(updatedNull.schedule).toBeNull();
+            expect(updatedNull.is_sql_null).toBe(true);
+            expect((await update(payload)).schedule).toEqual(payload);
+            expect((await update([])).schedule).toEqual([]);
+
+            // Only object-form writes omit undefined; set(column, value) binds it.
+            const explicitUndefined = await connection
+              .updateTable("jsonb_contract")
+              .set("schedule", useHelper ? jsonb(undefined) : undefined)
+              .where("id", "=", populated.id)
+              .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+              .executeTakeFirstOrThrow();
+            expect(explicitUndefined.is_sql_null).toBe(true);
+
+            const jsonNull = await connection
+              .updateTable("jsonb_contract")
+              .set({ schedule: sql<null>`'null'::jsonb` })
+              .where("id", "=", populated.id)
+              .returning(sql<boolean>`schedule is null`.as("is_sql_null"))
+              .returning(sql<string>`jsonb_typeof(schedule)`.as("json_type"))
+              .executeTakeFirstOrThrow();
+            expect(jsonNull.is_sql_null).toBe(false);
+            expect(jsonNull.json_type).toBe("null");
+          });
+        } finally {
+          await db.destroy();
+          await pool.close();
+        }
+      },
+    );
 
     test("SQL arrays, explicit JSON, objects and Int32Array", async () => {
       await withSession(prepare, async (session) => {
@@ -261,9 +489,9 @@ describe.each([true, false])(
         >(
           "SELECT $1::jsonb AS value, $2::text[] AS items, $3::jsonb IS NULL AS is_sql_null",
           [
-            transformValue(bunSql.json(Object.freeze([1, null]))),
-            transformValue(bunSql.array(["red", null], "TEXT")),
-            transformValue(bunSql.json(null)),
+            bunSql.json(Object.freeze([1, null])),
+            bunSql.array(["red", null], "TEXT"),
+            bunSql.json(null),
           ],
         );
         expect(row!.value).toEqual([1, null]);

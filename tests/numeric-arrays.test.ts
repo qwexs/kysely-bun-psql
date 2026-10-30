@@ -1,7 +1,7 @@
 import { SQL } from "bun";
 import { describe, expect, test } from "bun:test";
 import { Kysely, sql } from "kysely";
-import { BunDialect, jsonb } from "../src/index";
+import { BunDialect, jsonb, pgArray } from "../src/index";
 
 interface Database {
   numeric_array_read: { id: number; ints: number[]; reals: number[] };
@@ -202,7 +202,7 @@ describe.each([true, false])("numeric array reads (prepare: %s)", (prepare) => {
             connection,
           );
           const moods = ["ok", "a,b", 'a"b\\c', "NULL", null];
-          const moodExpression = sql`${moods}::pg_temp.numeric_array_mood[]`;
+          const moodExpression = sql`${pgArray(moods)}::pg_temp.numeric_array_mood[]`;
           const bytes = Buffer.from([0, 1, 255]);
           const { rows } = await sql<{
             moods: string;

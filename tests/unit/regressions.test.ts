@@ -1,17 +1,21 @@
-import { sql as bunSql } from "bun";
 import { describe, expect, test } from "bun:test";
 import { CompiledQuery } from "kysely";
 import { BunConnection, jsonb } from "../../src/index";
-import { transformValue } from "../../src/utils";
+
 import { createFakeReservedSQL } from "./fake-reserved-sql";
 
 describe("runtime regressions", () => {
-  test("preserves dimensions of native SQL arrays", () => {
+  test("preserves native array parameters and their dimensions", async () => {
     const input = [
       [1, 2],
       [3, 4],
     ];
-    expect(transformValue(input)).toEqual(bunSql.array(input));
+    const fake = createFakeReservedSQL();
+    const connection = new BunConnection(fake.reserved);
+    await connection.executeQuery(
+      CompiledQuery.raw("select $1::int[][]", [input]),
+    );
+    expect(fake.calls[0]?.parameters[0]).toBe(input);
     expect(input).toEqual([
       [1, 2],
       [3, 4],

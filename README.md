@@ -75,26 +75,45 @@ await db.destroy();
 
 ## Native JSON and PostgreSQL arrays
 
-Ordinary JavaScript arrays are bound as PostgreSQL arrays using Bun's native `sql.array()` helper. This includes arrays of user-defined enums when PostgreSQL can infer the element type from the query. Nested arrays retain their SQL dimensions; the dialect does not construct array literals itself.
+Parameters pass through to Bun's native SQL client by default; ordinary arrays are not automatically wrapped in `sql.array()`. Bun uses PostgreSQL's expected parameter type: JavaScript arrays become JSON for `json` / `jsonb` columns and SQL arrays for built-in array types such as `text[]` and `integer[]`. Plain objects continue to bind as JSON. See [Bun's parameter types](https://bun.com/docs/runtime/sql.md#parameter-types).
 
-Use `jsonb(value)` for JSON/JSONB column values, including arrays of primitives or objects, scalars and frozen objects/arrays. Non-null values use native `sql.json()` consistently with `prepare: true` and `prepare: false`; `null` and `undefined` pass through unchanged:
+Ordinary JSON arrays in object-form `.values({...})` / `.set({...})` need no helper. Empty arrays, arrays of objects, nested arrays and frozen values work with both `prepare: true` and `prepare: false`:
 
 ```typescript
+await db
+  .insertInto("events")
+  .values({
+    data: [{ id: 1 }, { id: 2 }], // one JSONB value in a JSONB column
+    tags: ["bun", "sql"], // SQL array in a TEXT[] column
+  })
+  .execute();
+```
+
+Keep the helpers for explicit control:
+
+```typescript
+import { sql } from "kysely";
 import { jsonb, jsonbArray, pgArray } from "@qwexs/kysely-bun-psql";
 
 await db
   .insertInto("events")
   .values({
-    data: jsonb(Object.freeze([1, 2])), // one JSONB value
+    data: jsonb(42), // a JSON number, not an SQL numeric parameter
     payloads: jsonbArray([{ id: 1 }, null, [1, 2]]), // JSONB[] elements
-    tags: ["bun", "sql"], // native TEXT[] parameter
-    moods: ["ok", "happy"], // enum[] when the column provides the type
+    moods: pgArray(["ok", "happy"], "mood"), // custom enum[] needs pgArray()
   })
   .execute();
 
-// Explicit SQL array helpers for typed arrays or a type without query context:
+// Kysely treats a bare array in .where() as a list, not one JSON value:
+await db
+  .selectFrom("events")
+  .selectAll()
+  .where("data", "=", jsonb([{ id: 1 }, { id: 2 }]))
+  .execute(); // sql.val([{ id: 1 }, { id: 2 }]) also binds one native parameter
+
+// Explicit SQL array helpers for typed arrays and element encoding:
 const scores = pgArray(new Float32Array([1.5, 2.5]), "REAL");
-const moods = pgArray(["ok", "happy"], "mood"); // e.g. SELECT with no type context
+const moods = pgArray(["ok", "happy"], "mood");
 const matrix = pgArray(
   [
     [1, 2],
@@ -102,21 +121,23 @@ const matrix = pgArray(
   ],
   "INT",
 );
+
+// Without a column providing SQL type context, include an explicit cast:
+await sql`select ${pgArray(["ok", "happy"])}::mood[] as moods`.execute(db);
 ```
 
-- Always use `jsonb()` when a JavaScript array should be one JSON/JSONB value, including empty arrays and arrays of objects. An unwrapped array is bound as an SQL array; PostgreSQL may store its array literal as a JSON string instead of rejecting it.
+- Use `jsonb()` for JSON scalars such as numbers and booleans, and for consistent JSON string handling with `prepare: true` and `prepare: false`. Non-null values use native `sql.json()`. It also explicitly binds an object or array as one JSON value; in Kysely `.where()`, use `jsonb(value)` or `sql.val(value)` to prevent an array from becoming a list.
+- Custom enum arrays require `pgArray()` even when the column provides type context: Bun does not recognize user-defined array types for bare arrays. Its optional element type name or array type OID controls encoding; it does not add a SQL cast to Kysely's compiled query. Standalone expressions still need type context such as `::mood[]`.
 - `jsonb(null)` is SQL NULL, like a bare `null`.
-- `jsonb(undefined)` remains `undefined`. In object-form `.values({...})` / `.set({...})`, Kysely omits the field: INSERT can use its default and UPDATE leaves it unchanged. Nullable/optional JSON columns can use `schedule: jsonb(values.schedule)` without `Array.isArray()` or null checks.
+- `jsonb(undefined)` remains `undefined`. In object-form `.values({...})` / `.set({...})`, Kysely omits the field: INSERT can use its default and UPDATE leaves it unchanged. Nullable/optional JSON object/array columns can use `schedule: values.schedule` directly; existing `schedule: jsonb(values.schedule)` calls remain valid without `Array.isArray()` or null checks.
 - `jsonbArray()` uses native `sql.array(..., "JSONB")`. Nested JS arrays are individual JSON elements, not extra SQL dimensions. `null` elements are JSON null; `undefined` elements are SQL NULL.
 - `pgArray()` accepts an element type name or an **array type OID**, matching Bun's native helper. Nested arrays represent SQL dimensions.
 - Non-null `jsonb()` values, `jsonbArray()` and `pgArray()` return **Kysely `RawBuilder<T>` expressions**, not serialized strings or mutated input values. Only `jsonb()` passes top-level `null` / `undefined` through. Use the expressions inside queries, not as standalone JSON values.
-- Model JSON columns with their actual write types. For example, `JSONColumnType<Payload, Payload, Payload>` accepts `jsonb(payload)`; Kysely's default `JSONColumnType<Payload>` expects JSON strings for writes.
+- Model JSON columns with their actual write types. For example, `JSONColumnType<Payload, Payload, Payload>` accepts both a bare object/array payload and `jsonb(payload)`; Kysely's default `JSONColumnType<Payload>` expects JSON strings for writes.
 
 For a JSON null value (distinct from SQL NULL), use an explicit expression:
 
 ```typescript
-import { sql } from "kysely";
-
 const jsonNull = sql<null>`'null'::jsonb`;
 ```
 
@@ -138,13 +159,13 @@ Already-plain arrays, SQL NULL, JSON/JSONB, `bytea`, bigint values and custom en
 
 `jsonb()` no longer marks the input with `JSONB_SYMBOL`, and `jsonbArray()` no longer returns a PostgreSQL literal masquerading as an array. Stop serializing or inspecting the helpers' return values outside queries. The deprecated `JSONB_SYMBOL` export remains for source compatibility but has no serialization effect. JSONB[] `null` elements now mean JSON null; use `undefined` for SQL NULL.
 
-Ordinary arrays now always bind as PostgreSQL arrays. Wrap arrays intended for JSON/JSONB in `jsonb()`, even if an array of objects previously worked without a helper. This is also a change from earlier v2 pass-through behavior.
+Since 2.1.1, ordinary arrays use Bun-native parameter handling rather than always going through `sql.array()`. JSON/JSONB arrays in `.values({...})` / `.set({...})` no longer require `jsonb()`; existing explicit wrappers remain valid. Built-in SQL arrays continue to work directly. **Breaking change for custom enum arrays:** replace direct values such as `moods: moods` with `moods: pgArray(moods)`, even when the column provides type context. Use the optional element type name / array type OID for explicit encoding; standalone expressions still need a SQL cast such as `::mood[]`. These rules supersede the earlier 2.0.1 array-binding behavior.
 
 Since 2.1.1, `jsonb(null)` means SQL NULL rather than JSON null, and `jsonb(undefined)` preserves column omission. Replace uses intended to store JSON null with an explicit expression such as `sql<null>` with the literal `'null'::jsonb`. The removed `normalizeNumericArrays` option is no longer needed: numeric SQL array results are normalized automatically.
 
 ## Configuration
 
-`BunDialectConfig` derives from Bun's native PostgreSQL options instead of maintaining a partial option list. Connection options are passed through unchanged. MySQL and SQLite clients are rejected; omitting `url` lets Bun resolve PostgreSQL settings from the environment.
+`BunDialectConfig` derives from Bun's native PostgreSQL options instead of maintaining a partial option list. Connection options are passed through unchanged. MySQL and SQLite clients are rejected; omitting `url` lets Bun resolve PostgreSQL settings from the environment. Bun-native parameter handling is the default with either `prepare` setting; there is no serialization mode option. Use `jsonb()`, `jsonbArray()` or `pgArray()` for per-value control.
 
 ```typescript
 const dialect = new BunDialect({

@@ -11,9 +11,11 @@ const helperSql = new SQL({ adapter: "postgres" });
  */
 export const JSONB_SYMBOL = Symbol.for("kysely-bun-psql:jsonb");
 
-/** Bind ordinary arrays as PostgreSQL arrays using Bun's native helper. */
+/**
+ * @deprecated Parameters now pass directly to Bun. Retained as an identity shim.
+ */
 export function transformValue(value: unknown): unknown {
-  return Array.isArray(value) ? helperSql.array([...value]) : value;
+  return value;
 }
 
 /**
@@ -42,14 +44,16 @@ export function freeze<T>(obj: T): Readonly<T> {
 }
 
 /**
- * Bind a JSON column value using Bun's native JSON parameter helper.
+ * Explicitly bind JSON using Bun's native JSON parameter helper.
+ * Ordinary objects/arrays need no helper in INSERT/UPDATE values. Use this for
+ * JSON scalars or to bind an array as one JSON value in Kysely predicates.
  * Non-null objects, arrays (including frozen arrays) and scalars become Kysely
  * expressions without mutation, with prepare: true and prepare: false.
  * null stays SQL NULL; undefined stays undefined for Kysely's object-form writes.
  * For JSON null, use an explicit expression such as sql<null>`'null'::jsonb`.
  *
  * @example
- * db.insertInto('table').values({ tags: jsonb(["tag1", "tag2"]) }).execute();
+ * db.insertInto('table').values({ data: jsonb(42) }).execute();
  */
 export function jsonb<T extends null | undefined>(value: T): T;
 export function jsonb<T>(
@@ -79,7 +83,9 @@ export function jsonbArray<T>(
 
 /**
  * Bind a PostgreSQL array, optionally specifying its element type name or array
- * type OID. Use this when the type cannot be inferred or for typed arrays.
+ * type OID. Use this for custom enum arrays (even with column type context),
+ * explicit element encoding, or typed arrays. The query must still provide SQL
+ * type context through a column or an explicit cast.
  * Nested JS arrays retain their SQL dimensions; null elements are SQL NULL
  * (except with JSON/JSONB).
  * Undefined elements read back as null. The result type describes the column

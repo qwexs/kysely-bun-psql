@@ -10,7 +10,7 @@ import {
   type TransactionSettings,
 } from "kysely";
 import { BunConnection } from "../../src/connection";
-import { BunDialectError, jsonb } from "../../src/index";
+import { BunDialectError } from "../../src/index";
 import { createFakeReservedSQL } from "./fake-reserved-sql";
 
 describe("BunConnection without a database", () => {
@@ -105,13 +105,13 @@ describe("BunConnection without a database", () => {
     },
   );
 
-  test("forwards SQL and transformed parameters without mutating the query", async () => {
+  test("forwards SQL and native parameters by identity without mutating the query", async () => {
     const fake = createFakeReservedSQL();
     const connection = new BunConnection(fake.reserved);
     const array = ['a"b', "c\\d", null];
     const object = { active: true };
-    const marked = jsonb([1, 2]);
-    const parameters = [array, object, marked, null, 42];
+    const nativeJson = bunSql.json([1, 2]);
+    const parameters = [array, object, nativeJson, null, 42];
     const query = CompiledQuery.raw("select $1, $2, $3, $4, $5", parameters);
 
     await connection.executeQuery(query);
@@ -119,12 +119,12 @@ describe("BunConnection without a database", () => {
     expect(fake.calls).toStrictEqual([
       {
         sql: query.sql,
-        parameters: [bunSql.array(array), object, marked, null, 42],
+        parameters,
       },
     ]);
-    expect(fake.calls[0]?.parameters[0]).toEqual(bunSql.array(array));
+    expect(fake.calls[0]?.parameters[0]).toBe(array);
     expect(fake.calls[0]?.parameters[1]).toBe(object);
-    expect(fake.calls[0]?.parameters[2]).toBe(marked);
+    expect(fake.calls[0]?.parameters[2]).toBe(nativeJson);
     expect(parameters[0]).toBe(array);
     expect(array).toEqual(['a"b', "c\\d", null]);
     expect(query.parameters).toEqual(parameters);

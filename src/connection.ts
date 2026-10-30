@@ -8,7 +8,6 @@ import {
 } from "kysely";
 import { BunDialectError } from "./errors.js";
 import type { ReservedSQL, SQL } from "bun";
-import { transformValue } from "./utils.js";
 
 type ActiveQuery = {
   query: SQL.Query<unknown>;
@@ -128,11 +127,11 @@ export class BunConnection implements DatabaseConnection {
     if (this.#releasing) {
       throw new BunDialectError("Connection is being released");
     }
-    const parameters = compiledQuery.parameters.map(transformValue);
     signal?.throwIfAborted();
+    // Bun uses PostgreSQL's parameter types to distinguish JSON from SQL arrays.
     const query = this.#reservedConnection.unsafe(
       compiledQuery.sql,
-      parameters,
+      compiledQuery.parameters,
     );
     let settle!: () => void;
     const active: ActiveQuery = {

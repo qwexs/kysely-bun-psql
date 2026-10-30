@@ -73,11 +73,14 @@ describe("native Bun parameter serialization", () => {
     },
     { name: "object array", value: [{ id: 1 }, { id: 2 }] },
     { name: "mixed object array", value: [null, "text", { id: 1 }] },
-  ])("binds $name as a PostgreSQL array without mutation", ({ value }) => {
-    const before = JSON.stringify(value);
-    expect(transformValue(value)).toEqual(bunSql.array([...value]));
-    expect(JSON.stringify(value)).toBe(before);
-  });
+  ])(
+    "preserves $name for Bun's contextual binding without mutation",
+    ({ value }) => {
+      const before = JSON.stringify(value);
+      expect(transformValue(value)).toBe(value);
+      expect(JSON.stringify(value)).toBe(before);
+    },
+  );
 
   test.each([
     { name: "null", value: null },
@@ -101,7 +104,7 @@ describe("native Bun parameter serialization", () => {
   test("retains the deprecated marker export without changing array binding", () => {
     expect<symbol>(JSONB_SYMBOL).toBe(Symbol.for("kysely-bun-psql:jsonb"));
     const value = Object.assign([1, 2], { [JSONB_SYMBOL]: true });
-    expect(transformValue(value)).toEqual(bunSql.array([1, 2]));
+    expect(transformValue(value)).toBe(value);
   });
 });
 
