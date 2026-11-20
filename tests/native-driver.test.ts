@@ -396,8 +396,8 @@ describe.skipIf(!databaseUrl)("native Bun PostgreSQL driver", () => {
       const controller = new AbortController();
       const reason = new Error("cancel queued reservation");
       const waiting = driver.acquireConnection({ signal: controller.signal });
-      // Bun 1.4.4's rejects matcher waits before returning. Schedule abort
-      // first: code placed after the matcher cannot unblock its own Promise.
+      // Schedule the abort before asserting the rejection: the matcher may
+      // wait for the promise to settle before returning.
       const abortTimer = setTimeout(() => controller.abort(reason), 20);
       try {
         await expect(

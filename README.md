@@ -6,7 +6,7 @@
 
 [Kysely](https://github.com/koskimas/kysely) dialect for [PostgreSQL](https://www.postgresql.org/) using Bun's built-in SQL client under the hood.
 
-Uses [Bun's native SQL client](https://bun.com/docs/runtime/sql.md) for parameter binding, JSON and PostgreSQL arrays, pooling, and query cancellation. The dialect normalizes numeric SQL array results to ordinary JavaScript arrays. Targets the latest stable Bun, currently **1.4.4**, and **Kysely 0.29.7**.
+Uses [Bun's native SQL client](https://bun.com/docs/runtime/sql.md) for parameter binding, JSON and PostgreSQL arrays, pooling, and query cancellation. The dialect normalizes numeric SQL array results to ordinary JavaScript arrays. Targets the latest stable Bun, currently **1.4.5**, and **Kysely 0.29.7**.
 
 ## Installation
 
@@ -34,7 +34,7 @@ Then run `bun install`. Bun must be allowed to run the package's `prepare` scrip
 
 This checklist targets **2.1.1**. Earlier 2.x releases had different array and null handling; see the [changelog](CHANGELOG.md) if you are targeting one of those releases. No database schema changes are required to upgrade the dialect.
 
-1. **Update dependencies.** The package requires Bun `>=1.4.4` and Kysely `>=0.29.7 <0.30`. Existing `new BunDialect({ url, ... })` setup still works.
+1. **Update dependencies.** The package requires Bun `>=1.4.5` and Kysely `>=0.29.7 <0.30`. Existing `new BunDialect({ url, ... })` setup still works.
 2. **Use the JSON helpers inside queries.** `jsonb()` no longer marks or mutates its input, and `jsonbArray()` no longer returns a PostgreSQL array literal. Pass the helper result directly to the query; treat `RawBuilder` results as SQL expressions, not application data. Remove manual `JSONB_SYMBOL` tagging: the deprecated export no longer affects serialization.
 3. **Check array writes.** Plain arrays work for `json` / `jsonb` and built-in SQL array columns in `.values({...})` and `.set({...})`; existing explicit JSON wrappers still work. If your Kysely column types only allow JSON strings on writes, update them to accept the actual payload type (see the examples below). For custom enum arrays, replace bare values with `pgArray(moods)` even when writing to a typed column. Standalone expressions still need SQL type context, for example `::mood[]`.
 4. **Check null handling.** In `jsonbArray()`, replace `null` elements with `undefined` if you want to keep storing SQL NULL instead of JSON null. For a plain JSONB column, `jsonb(null)` writes SQL NULL; use an explicit `'null'::jsonb` expression for JSON null. `jsonb(undefined)` lets Kysely omit the field in object-form writes.
@@ -167,7 +167,6 @@ Normalization works with internally created and externally supplied SQL clients;
 
 Already-plain arrays, SQL NULL, JSON/JSONB, `bytea`, bigint values and custom enum-array strings are not modified. There is no recursive conversion or automatic decoding of enum arrays; use an explicit `to_jsonb(column)` projection for an ordinary JSON array, or keep your existing type-aware parser. Normalization preserves decoded numbers: it does not remove binary-versus-text rounding differences for `real`.
 
-
 ## Configuration
 
 `BunDialectConfig` derives from Bun's native PostgreSQL options instead of maintaining a partial option list. Connection options are passed through unchanged. MySQL and SQLite clients are rejected; omitting `url` lets Bun resolve PostgreSQL settings from the environment. Bun-native parameter handling is the default with either `prepare` setting; there is no serialization mode option. Use `jsonb()`, `jsonbArray()` or `pgArray()` for per-value control.
@@ -190,6 +189,8 @@ const dialect = new BunDialect({
 ```
 
 Native `path` / `socket`, TLS modes and certificate options, `bigint`, callbacks, pool limits and startup settings are supported. See [Bun SQL connection options](https://bun.com/docs/runtime/sql.md#connection-options) for their full semantics. `closeTimeout` is dialect-specific, not a native SQL option: omitted means wait without a deadline; `0` closes immediately.
+
+[Bun 1.4.5](https://bun.com/blog/bun-v1.4.5) validates custom root certificates more strictly. If a private CA that worked on an older Bun release is now rejected, update the CA chain instead of disabling TLS verification.
 
 Native `transform` is opt-in. It can rename result keys but cannot rewrite identifiers compiled by Kysely. Prefer Kysely's `CamelCasePlugin` for Kysely queries; do not stack both naming systems unintentionally.
 
@@ -302,7 +303,7 @@ Cancellation is **best-effort**, not a rollback guarantee: a write can finish be
 
 ## Development and validation
 
-Development targets the latest stable Bun, currently **1.4.4**, recorded in `.bun-version` and `packageManager`. Older Bun releases are not part of the supported test matrix. PostgreSQL tests use the current `postgres:latest` image.
+Development targets the latest stable Bun, currently **1.4.5**, recorded in `.bun-version` and `packageManager`. Older Bun releases are not part of the supported test matrix. PostgreSQL tests use the current `postgres:latest` image.
 
 Formatting uses native `bun fmt`; type checking uses native `bun check`. Declaration generation uses stable **TypeScript 7.0.2** (`tsc`), with explicit Bun types and bundler module resolution. ESLint, typescript-eslint and Prettier are not required. Native `bun lint` is currently canary-only and is not part of stable CI; formatting and type checking do not replace all lint rules.
 
@@ -349,7 +350,7 @@ For AI-powered development with Kysely queries, check out the [kysely-postgres-s
 
 ## Requirements
 
-- Bun v1.4.4 or higher; only the latest stable release is tested and supported
+- Bun v1.4.5 or higher; only the latest stable release is tested and supported
 - Kysely `>=0.29.7 <0.30` (the current cancellation and driver interfaces)
 - PostgreSQL; integration tests run against `postgres:latest`
 

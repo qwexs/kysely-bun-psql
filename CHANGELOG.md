@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Require [Bun 1.4.5](https://bun.com/blog/bun-v1.4.5) or later and use matching Bun types and CI runtime. This Bun security release also tightens validation of custom root certificates used for TLS.
 - Pass parameters through to Bun's native SQL client by default instead of wrapping every JavaScript array in `sql.array()`; no configuration option is needed. Ordinary arrays bind as JSON for `json` / `jsonb` and as SQL arrays for built-in array types, with either `prepare` setting. Plain objects remain unchanged; `jsonb()`, `jsonbArray()` and `pgArray()` remain available for explicit control. This supersedes the 2.0.1 array-binding behavior below.
 - **Breaking migration for custom enum arrays:** direct arrays no longer work even when the column provides type context; use `pgArray(moods)`. An explicit element type name or array type OID controls encoding, for example `pgArray(moods, "mood")`; standalone expressions still need SQL type context such as `::mood[]`.
 - Make `jsonb()` pass top-level `null` and `undefined` through unchanged: null means SQL NULL, and undefined lets Kysely omit fields in object-form INSERT/UPDATE writes. Non-null JSON values still use native `sql.json()`. This changes `jsonb(null)` from JSON null to SQL NULL; use an explicit `'null'::jsonb` expression for JSON null. Nested JSON nulls and `jsonbArray()` element semantics are unchanged.
