@@ -30,6 +30,18 @@ Pin a reviewed commit instead of a moving branch:
 
 Then run `bun install`. Bun must be allowed to run the package's `prepare` script to build `dist`; `--ignore-scripts` prevents this. Keep any other dependencies whose lifecycle scripts you need in your existing trust list: an explicit `trustedDependencies` list replaces Bun's defaults. See [Bun lifecycle scripts](https://bun.com/docs/pm/lifecycle.md).
 
+## Migrating from v1 to v2
+
+This checklist targets **2.1.1**. Earlier 2.x releases had different array and null handling; see the [changelog](CHANGELOG.md) if you are targeting one of those releases. No database schema changes are required to upgrade the dialect.
+
+1. **Update dependencies.** The package requires Bun `>=1.4.4` and Kysely `>=0.29.7 <0.30`. Existing `new BunDialect({ url, ... })` setup still works.
+2. **Use the JSON helpers inside queries.** `jsonb()` no longer marks or mutates its input, and `jsonbArray()` no longer returns a PostgreSQL array literal. Pass the helper result directly to the query; treat `RawBuilder` results as SQL expressions, not application data. Remove manual `JSONB_SYMBOL` tagging: the deprecated export no longer affects serialization.
+3. **Check array writes.** Plain arrays work for `json` / `jsonb` and built-in SQL array columns in `.values({...})` and `.set({...})`; existing explicit JSON wrappers still work. If your Kysely column types only allow JSON strings on writes, update them to accept the actual payload type (see the examples below). For custom enum arrays, replace bare values with `pgArray(moods)` even when writing to a typed column. Standalone expressions still need SQL type context, for example `::mood[]`.
+4. **Check null handling.** In `jsonbArray()`, replace `null` elements with `undefined` if you want to keep storing SQL NULL instead of JSON null. For a plain JSONB column, `jsonb(null)` writes SQL NULL; use an explicit `'null'::jsonb` expression for JSON null. `jsonb(undefined)` lets Kysely omit the field in object-form writes.
+5. **Check numeric array reads.** The dialect now returns top-level `integer[]` and `real[]` results as plain JavaScript arrays. Check any code that expects typed arrays. If you tried the `normalizeNumericArrays` option in 2.1.0, remove it; normalization is automatic.
+
+See [Native JSON and PostgreSQL arrays](#native-json-and-postgresql-arrays) for query examples.
+
 ## Usage
 
 ```typescript
@@ -155,13 +167,6 @@ Normalization works with internally created and externally supplied SQL clients;
 
 Already-plain arrays, SQL NULL, JSON/JSONB, `bytea`, bigint values and custom enum-array strings are not modified. There is no recursive conversion or automatic decoding of enum arrays; use an explicit `to_jsonb(column)` projection for an ordinary JSON array, or keep your existing type-aware parser. Normalization preserves decoded numbers: it does not remove binary-versus-text rounding differences for `real`.
 
-### Migration from earlier helper behavior
-
-`jsonb()` no longer marks the input with `JSONB_SYMBOL`, and `jsonbArray()` no longer returns a PostgreSQL literal masquerading as an array. Stop serializing or inspecting the helpers' return values outside queries. The deprecated `JSONB_SYMBOL` export remains for source compatibility but has no serialization effect. JSONB[] `null` elements now mean JSON null; use `undefined` for SQL NULL.
-
-Since 2.1.1, ordinary arrays use Bun-native parameter handling rather than always going through `sql.array()`. JSON/JSONB arrays in `.values({...})` / `.set({...})` no longer require `jsonb()`; existing explicit wrappers remain valid. Built-in SQL arrays continue to work directly. **Breaking change for custom enum arrays:** replace direct values such as `moods: moods` with `moods: pgArray(moods)`, even when the column provides type context. Use the optional element type name / array type OID for explicit encoding; standalone expressions still need a SQL cast such as `::mood[]`. These rules supersede the earlier 2.0.1 array-binding behavior.
-
-Since 2.1.1, `jsonb(null)` means SQL NULL rather than JSON null, and `jsonb(undefined)` preserves column omission. Replace uses intended to store JSON null with an explicit expression such as `sql<null>` with the literal `'null'::jsonb`. The removed `normalizeNumericArrays` option is no longer needed: numeric SQL array results are normalized automatically.
 
 ## Configuration
 
