@@ -10,6 +10,7 @@ type FakeResultOptions<Row> = {
   deferred?: boolean;
   releaseError?: Error;
   release?: ReservedSQL["release"];
+  close?: ReservedSQL["close"];
 };
 
 type FakeQuery = {
@@ -98,6 +99,9 @@ export function createFakeReservedSQL<Row = Record<string, unknown>>(
 
   const fake = {
     unsafe,
+    async close(closeOptions) {
+      await options.close?.(closeOptions);
+    },
     async release() {
       releases += 1;
       if (options.releaseError) {
@@ -105,7 +109,7 @@ export function createFakeReservedSQL<Row = Record<string, unknown>>(
       }
       await options.release?.();
     },
-  } satisfies Pick<ReservedSQL, "unsafe" | "release">;
+  } satisfies Pick<ReservedSQL, "unsafe" | "release" | "close">;
 
   return {
     reserved: fake as ReservedSQL,

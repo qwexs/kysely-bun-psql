@@ -1,6 +1,7 @@
 import { sql as bunSql } from "bun";
 import { describe, expect, spyOn, test } from "bun:test";
 import {
+  AbortedTransactionError,
   CompiledQuery,
   Kysely,
   PostgresAdapter,
@@ -305,6 +306,89 @@ async function checkpoint() {
 }
 
 describe("BunConnection cancellation", () => {
+  test("a late kill hook cannot close an idle reservation or its non-aborted successor", async () => {
+    let closes = 0;
+    const fake = createFakeReservedSQL({
+      deferred: true,
+      close: async () => {
+        closes++;
+      },
+    });
+    const connection = new BunConnection(fake.reserved);
+    const first = new AbortController();
+    const query = CompiledQuery.raw("select 1");
+    const completed = connection.executeQuery(query, { signal: first.signal });
+    await fake.started;
+    fake.queries[0]!.resolve();
+    await completed;
+    first.abort();
+    await connection.killSession(noControlConnection);
+    const successor = connection.executeQuery(query, {
+      signal: new AbortController().signal,
+    });
+    await fake.queries[1]!.started;
+    await connection.killSession(noControlConnection);
+    fake.queries[1]!.resolve();
+    await successor;
+    await connection.releaseConnection();
+    expect(closes).toBe(0);
+    expect(fake.releases).toBe(1);
+  });
+
+  test.each([true, false])(
+    "kill closes once, fences queued SQL and awaits cleanup (close succeeds: %p)",
+    async (succeeds) => {
+      const close = Promise.withResolvers<void>();
+      const closeError = new Error("native close failed");
+      let closes = 0;
+      const fake = createFakeReservedSQL({
+        deferred: true,
+        close: async (options) => {
+          expect(options).toEqual({ timeout: 0 });
+          closes++;
+          return close.promise;
+        },
+      });
+      const connection = new BunConnection(fake.reserved);
+      const controller = new AbortController();
+      const query = CompiledQuery.raw("select 1");
+      const active = connection
+        .executeQuery(query, { signal: controller.signal })
+        .catch((e: unknown) => e);
+      await fake.started;
+      const queued = connection.executeQuery(query).catch((e: unknown) => e);
+      controller.abort();
+      const cleanup = Promise.allSettled([
+        connection.killSession(noControlConnection),
+        connection.killSession(noControlConnection),
+        connection.rollbackTransaction(),
+        connection.releaseConnection(),
+      ]);
+      const commit = connection.commitTransaction().catch((e: unknown) => e);
+      const error = Object.assign(new Error("disconnected"), {
+        code: "ERR_POSTGRES_QUERY_CANCELLED",
+        hint: "delivery failed",
+      });
+      fake.queries[0]!.reject(error);
+      expect(await active).toBe(error);
+      expect(await queued).toBeInstanceOf(BunDialectError);
+      expect(closes).toBe(1);
+      if (succeeds) close.resolve();
+      else close.reject(closeError);
+      for (const result of await cleanup) {
+        expect(result).toEqual(
+          succeeds
+            ? { status: "fulfilled", value: undefined }
+            : { status: "rejected", reason: closeError },
+        );
+      }
+      if (succeeds)
+        expect(await commit).toBeInstanceOf(AbortedTransactionError);
+      else expect(await commit).toBe(closeError);
+      expect(fake.calls).toHaveLength(1);
+      expect(fake.releases).toBe(0);
+    },
+  );
   test.each([new Error("stop"), "stop", null])(
     "pre-abort preserves the original reason %p without SQL",
     async (reason) => {

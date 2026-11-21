@@ -1,11 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { SQL } from "bun";
-import { CompiledQuery, Kysely, type ControlConnectionProvider } from "kysely";
+import {
+  AbortedTransactionError,
+  CompiledQuery,
+  Kysely,
+  sql,
+  type ControlConnectionProvider,
+} from "kysely";
 import { BunConnection } from "../src/connection";
 import { BunDialect } from "../src/index";
 
 // Integration only: run against the disposable DATABASE_URL selected by the main runner.
-// Every table below is temporary and belongs to an explicitly reserved session.
+// Kill tests use a unique cross-session table to observe rollback after disconnect.
 const databaseUrl = process.env["DATABASE_URL"];
 if (!databaseUrl) {
   throw new Error(
@@ -13,9 +19,9 @@ if (!databaseUrl) {
   );
 }
 
-function createPool() {
+function createPool(max = 1) {
   return new SQL(databaseUrl!, {
-    max: 1,
+    max,
     connectionTimeout: 5,
     connection: { statement_timeout: "10000" },
   });
@@ -302,6 +308,161 @@ describe("native BunConnection runtime contracts", () => {
     } finally {
       controller.abort(reason);
       await outcome;
+      await db.destroy();
+      await pool.close();
+      await observer.close();
+    }
+  }, 15000);
+
+  test.each([
+    "propagate",
+    "swallow",
+    "controlled commit",
+    "controlled rollback",
+  ] as const)(
+    "kill session inside transaction: %s",
+    async (mode) => {
+      // Leave one application slot available, even when testing a shared pool.
+      const pool = createPool(mode === "swallow" ? 2 : 1);
+      const observer = createPool();
+      const db = new Kysely<Record<string, never>>({
+        dialect: new BunDialect({ sql: pool }),
+      });
+      const table = `kill_probe_${crypto.randomUUID().replaceAll("-", "")}`;
+      const controller = new AbortController();
+      const reason = new Error("kill active transaction");
+      const marker = `select pg_sleep(30) /* ${table} */`;
+      const options = {
+        signal: controller.signal,
+        inflightQueryAbortStrategy: "kill session",
+      } as const;
+      try {
+        await observer`create table ${observer(table)} (id integer primary key)`;
+        const sibling = mode === "swallow" ? await pool.reserve() : undefined;
+        try {
+          const siblingPid =
+            sibling && (await sibling`select pg_backend_pid() as pid`)[0].pid;
+          const [{ pid }] = await pool<
+            { pid: number }[]
+          >`select pg_backend_pid() as pid`;
+          const run = async (trx: Kysely<Record<string, never>>) => {
+            await sql`insert into ${sql.id(table)} values (1)`.execute(trx);
+            await trx.executeQuery(CompiledQuery.raw(marker), options);
+          };
+          const operation = (async () => {
+            if (mode === "propagate" || mode === "swallow") {
+              await db.transaction().execute(async (trx) => {
+                if (mode === "propagate") return run(trx);
+                await expect(run(trx)).rejects.toBe(reason);
+              });
+            } else {
+              const trx = await db.startTransaction().execute();
+              try {
+                await expect(run(trx)).rejects.toBe(reason);
+                if (mode === "controlled commit") {
+                  await expect(trx.commit().execute()).rejects.toBeInstanceOf(
+                    AbortedTransactionError,
+                  );
+                } else {
+                  await trx.rollback().execute();
+                }
+                expect(trx.isRolledBack).toBe(true);
+                expect(trx.isCommitted).toBe(false);
+              } finally {
+                if (!trx.isCommitted && !trx.isRolledBack)
+                  await trx.rollback().execute();
+              }
+            }
+          })().then(
+            () => undefined,
+            (error: unknown) => error,
+          );
+          try {
+            await waitForSleep(observer, pid, marker);
+          } finally {
+            controller.abort(reason);
+          }
+          const result = await operation;
+          if (mode === "propagate") expect(result).toBe(reason);
+          else if (mode === "swallow")
+            expect(result).toBeInstanceOf(AbortedTransactionError);
+          else expect(result).toBeUndefined();
+
+          const replacement = await pool.reserve({
+            signal: AbortSignal.timeout(3000),
+          });
+          try {
+            expect(
+              (await replacement`select pg_backend_pid() as pid`)[0].pid,
+            ).not.toBe(pid);
+            expect(
+              (await replacement`select id from ${replacement(table)}`).length,
+            ).toBe(0);
+          } finally {
+            await replacement.release();
+          }
+          // Socket close and backend exit need not be observed in the same tick.
+          const deadline = Date.now() + 3000;
+          while (
+            (
+              await observer`select pid from pg_stat_activity where pid = ${pid}`
+            ).length
+          ) {
+            if (Date.now() >= deadline)
+              throw new Error("Killed PostgreSQL session is still present");
+            await Bun.sleep(10);
+          }
+          if (sibling)
+            expect((await sibling`select pg_backend_pid() as pid`)[0].pid).toBe(
+              siblingPid,
+            );
+        } finally {
+          await sibling?.release();
+        }
+      } finally {
+        controller.abort(reason);
+        try {
+          await db.destroy();
+          await pool.close({ timeout: 0 });
+          await observer`drop table if exists ${observer(table)}`;
+        } finally {
+          await observer.close({ timeout: 0 });
+        }
+      }
+    },
+    15000,
+  );
+
+  test("late kill session abort leaves the next borrower running on the same backend", async () => {
+    const pool = createPool();
+    const observer = createPool();
+    const db = new Kysely<Record<string, never>>({
+      dialect: new BunDialect({ sql: pool }),
+    });
+    const controller = new AbortController();
+    try {
+      const {
+        rows: [{ pid }],
+      } = await db.executeQuery<{ pid: number }>(
+        CompiledQuery.raw("select pg_backend_pid() as pid"),
+        {
+          signal: controller.signal,
+          inflightQueryAbortStrategy: "kill session",
+        },
+      );
+      const marker = `late_kill_${crypto.randomUUID().replaceAll("-", "")}`;
+      const next = db.executeQuery<{ pid: number }>(
+        CompiledQuery.raw(
+          `select pg_backend_pid() as pid from pg_sleep(1) /* ${marker} */`,
+        ),
+      );
+      try {
+        await waitForSleep(observer, pid, marker);
+        controller.abort();
+      } finally {
+        expect((await next).rows).toEqual([{ pid }]);
+      }
+    } finally {
       await db.destroy();
       await pool.close();
       await observer.close();

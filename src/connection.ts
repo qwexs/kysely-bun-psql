@@ -14,6 +14,7 @@ type ActiveQuery = {
   query: SQL.Query<unknown>;
   settled: Promise<void>;
   cancelRequested: boolean;
+  signal?: AbortSignal;
 };
 
 const INT4_ARRAY_OID = 1007;
@@ -55,6 +56,7 @@ export class BunConnection implements DatabaseConnection {
   #reservedConnection: ReservedSQL;
   #activeQuery?: ActiveQuery;
   #releasing = false;
+  #sessionClose?: Promise<void>;
 
   constructor(reservedConnection: ReservedSQL) {
     this.#reservedConnection = reservedConnection;
@@ -95,6 +97,10 @@ export class BunConnection implements DatabaseConnection {
   }
 
   async commitTransaction(): Promise<void> {
+    if (this.#sessionClose) {
+      await this.#sessionClose;
+      throw new AbortedTransactionError();
+    }
     const result = await this.#executeNative(CompiledQuery.raw("commit"));
     // A failed transaction completes COMMIT successfully on the wire, with a ROLLBACK tag.
     if (result.command === "ROLLBACK") throw new AbortedTransactionError();
@@ -110,6 +116,20 @@ export class BunConnection implements DatabaseConnection {
     this.#cancel(active);
     // cancel() is only a request. Kysely must not release the reservation yet.
     await active.settled;
+  }
+
+  async killSession(
+    _controlConnectionProvider: ControlConnectionProvider,
+  ): Promise<void> {
+    if (this.#sessionClose) return this.#sessionClose;
+    // The hook carries no query ID. Kysely owns this reservation until the
+    // hook settles; do not act on a finished query or an unsignalled successor.
+    if (!this.#activeQuery?.signal?.aborted) return;
+    // Mark terminal before closing: callback cleanup can race the abort hook.
+    this.#sessionClose = Promise.resolve().then(() =>
+      this.#reservedConnection.close({ timeout: 0 }),
+    );
+    return this.#sessionClose;
   }
 
   async executeQuery<R>(
@@ -140,7 +160,7 @@ export class BunConnection implements DatabaseConnection {
     options?: AbortableOperationOptions,
   ) {
     // Kysely forwards only { signal }, not inflightQueryAbortStrategy. Check it
-    // before SQL starts; only cancelQuery may request native cancellation.
+    // before SQL starts; only Kysely's selected abort hook may stop native work.
     // Direct callers therefore cannot abort in-flight SQL using signal alone.
     const signal = options?.signal;
     signal?.throwIfAborted();
@@ -150,6 +170,7 @@ export class BunConnection implements DatabaseConnection {
       await this.#activeQuery.settled;
       signal?.throwIfAborted();
     }
+    if (this.#sessionClose) throw new BunDialectError("Session was killed");
     if (this.#releasing) {
       throw new BunDialectError("Connection is being released");
     }
@@ -166,6 +187,7 @@ export class BunConnection implements DatabaseConnection {
         settle = resolve;
       }),
       cancelRequested: false,
+      signal,
     };
     this.#activeQuery = active;
 
@@ -175,6 +197,7 @@ export class BunConnection implements DatabaseConnection {
       return await query;
     } catch (error) {
       if (
+        !this.#sessionClose &&
         error !== null &&
         typeof error === "object" &&
         "code" in error &&
@@ -208,11 +231,15 @@ export class BunConnection implements DatabaseConnection {
   async releaseConnection(): Promise<void> {
     this.#releasing = true;
     await this.#activeQuery?.settled;
-    await this.#reservedConnection.release();
+    if (this.#sessionClose) await this.#sessionClose;
+    else await this.#reservedConnection.release();
     this.#reservedConnection = null!;
   }
 
   async rollbackTransaction(): Promise<void> {
+    // Disconnect rolls back the open transaction. Sending ROLLBACK would
+    // replace the callback's abort reason with a closed-connection error.
+    if (this.#sessionClose) return this.#sessionClose;
     await this.executeQuery(CompiledQuery.raw("rollback"));
   }
 

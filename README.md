@@ -305,6 +305,10 @@ With only `{ signal }`, Kysely's default `"ignore query"` stops waiting but lets
 
 Cancellation is **best-effort**, not a rollback guarantee: a write can finish before the cancel request arrives. Never retry a write blindly. The dialect serializes queries on each reservation to avoid pipelined cancellation targeting another statement. Direct low-level `BunConnection.executeQuery(..., { signal })` checks abort only before SQL starts; running-query cancellation uses the Kysely executor and its `cancelQuery` hook. See [Bun cancellation semantics](https://bun.com/docs/runtime/sql.md#execute-and-cancelling-queries).
 
+Use `inflightQueryAbortStrategy: "kill session"` with a `signal` to discard the active query's **reserved connection**, not the whole pool. The driver calls [`reserved.close({ timeout: 0 })`](https://bun.com/docs/runtime/sql.md#reserved-connections); it does not need a second pool slot or `pg_terminate_backend` privileges. A signal aborted before execution or after query completion does not kill a session. Do not mix direct operations on the same `BunConnection` with Kysely-managed work.
+
+If the session is killed inside `db.transaction().execute(...)`, its uncommitted writes are rolled back by PostgreSQL on disconnect. Let the query rejection escape the callback to preserve `signal.reason` when closing succeeds. If native close fails, cleanup reports the close error rather than claiming a successful rollback. If you swallow it and return normally, Kysely's commit rejects with `AbortedTransactionError` instead of reporting success. A controlled transaction on the killed session can be rolled back; attempting to commit it also rejects. This is a client-side disconnect, not confirmation from PostgreSQL that a backend has already exited. It cannot undo a completed write or establish the outcome of a previously sent `COMMIT` after a network failure.
+
 `numAffectedRows` uses Bun's native `affectedRows` for `INSERT`, `UPDATE`, `DELETE` and `MERGE` (with protocol-count fallback). It is not added to SELECT results.
 
 ## Development and validation
