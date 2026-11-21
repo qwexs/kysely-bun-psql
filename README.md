@@ -6,7 +6,7 @@
 
 [Kysely](https://github.com/koskimas/kysely) dialect for [PostgreSQL](https://www.postgresql.org/) using Bun's built-in SQL client under the hood.
 
-Uses [Bun's native SQL client](https://bun.com/docs/runtime/sql.md) for parameter binding, JSON and PostgreSQL arrays, pooling, and query cancellation. The dialect normalizes numeric SQL array results to ordinary JavaScript arrays. Targets the latest stable Bun, currently **1.4.5**, and **Kysely 0.29.7**.
+Uses [Bun's native SQL client](https://bun.com/docs/runtime/sql.md) for parameter binding, JSON and PostgreSQL arrays, pooling, and query cancellation. The dialect normalizes numeric SQL array results to ordinary JavaScript arrays. Tested with **Bun 1.4.5** and **Kysely 0.29.9**.
 
 ## Installation
 
@@ -22,7 +22,7 @@ Pin a reviewed commit instead of a moving branch:
 {
   "dependencies": {
     "@qwexs/kysely-bun-psql": "github:qwexs/kysely-bun-psql#<commit-sha>",
-    "kysely": "^0.29.7"
+    "kysely": "^0.29.9"
   },
   "trustedDependencies": ["@qwexs/kysely-bun-psql"]
 }
@@ -30,11 +30,17 @@ Pin a reviewed commit instead of a moving branch:
 
 Then run `bun install`. Bun must be allowed to run the package's `prepare` script to build `dist`; `--ignore-scripts` prevents this. Keep any other dependencies whose lifecycle scripts you need in your existing trust list: an explicit `trustedDependencies` list replaces Bun's defaults. See [Bun lifecycle scripts](https://bun.com/docs/pm/lifecycle.md).
 
+## Migrating from v2 to v3
+
+Upgrade Kysely to `>=0.29.8 <0.30` before or alongside the dialect. No database schema or dialect configuration changes are required when upgrading from 2.1.1.
+
+If PostgreSQL rolls back a transaction instead of committing it, the commit now rejects with Kysely's `AbortedTransactionError` instead of reporting success. Let statement errors propagate, or roll back to a savepoint before continuing the transaction.
+
 ## Migrating from v1 to v2
 
 This checklist targets **2.1.1**. Earlier 2.x releases had different array and null handling; see the [changelog](CHANGELOG.md) if you are targeting one of those releases. No database schema changes are required to upgrade the dialect.
 
-1. **Update dependencies.** The package requires Bun `>=1.4.5` and Kysely `>=0.29.7 <0.30`. Existing `new BunDialect({ url, ... })` setup still works.
+1. **Update dependencies.** Version 2.1.1 requires Bun `>=1.4.5` and Kysely `>=0.29.7 <0.30`. For the current source, see [Requirements](#requirements). Existing `new BunDialect({ url, ... })` setup still works.
 2. **Use the JSON helpers inside queries.** `jsonb()` no longer marks or mutates its input, and `jsonbArray()` no longer returns a PostgreSQL array literal. Pass the helper result directly to the query; treat `RawBuilder` results as SQL expressions, not application data. Remove manual `JSONB_SYMBOL` tagging: the deprecated export no longer affects serialization.
 3. **Check array writes.** Plain arrays work for `json` / `jsonb` and built-in SQL array columns in `.values({...})` and `.set({...})`; existing explicit JSON wrappers still work. If your Kysely column types only allow JSON strings on writes, update them to accept the actual payload type (see the examples below). For custom enum arrays, replace bare values with `pgArray(moods)` even when writing to a typed column. Standalone expressions still need SQL type context, for example `::mood[]`.
 4. **Check null handling.** In `jsonbArray()`, replace `null` elements with `undefined` if you want to keep storing SQL NULL instead of JSON null. For a plain JSONB column, `jsonb(null)` writes SQL NULL; use an explicit `'null'::jsonb` expression for JSON null. `jsonb(undefined)` lets Kysely omit the field in object-form writes.
@@ -351,7 +357,7 @@ For AI-powered development with Kysely queries, check out the [kysely-postgres-s
 ## Requirements
 
 - Bun v1.4.5 or higher; only the latest stable release is tested and supported
-- Kysely `>=0.29.7 <0.30` (the current cancellation and driver interfaces)
+- Kysely `>=0.29.8 <0.30` (`AbortedTransactionError` support for commits that PostgreSQL rolls back)
 - PostgreSQL; integration tests run against `postgres:latest`
 
 ## License

@@ -1,6 +1,6 @@
 {
   "name": "@qwexs/kysely-bun-psql",
-  "version": "2.1.1",
+  "version": "3.0.0",
   "packageManager": "bun@1.4.5",
   "description": "Kysely dialect for PostgreSQL using Bun's native SQL client",
   "repository": {
@@ -55,14 +55,14 @@
     "bun": ">=1.4.5"
   },
   "peerDependencies": {
-    "kysely": ">=0.29.7 <0.30"
+    "kysely": ">=0.29.8 <0.30"
   },
   "dependencies": {
     "@types/bun": "1.4.5",
     "typescript": "7.0.2"
   },
   "devDependencies": {
-    "kysely": "0.29.7"
+    "kysely": "0.29.9"
   },
   "sideEffects": false,
   "directories": {

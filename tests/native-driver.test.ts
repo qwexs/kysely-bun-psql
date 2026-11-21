@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { SQL, type ReservedSQL } from "bun";
-import { CompiledQuery, Kysely, sql } from "kysely";
+import {
+  AbortedTransactionError,
+  CompiledQuery,
+  Kysely,
+  sql,
+  type Transaction,
+} from "kysely";
 import { BunConnection } from "../src/connection";
 import { BunDialect } from "../src/dialect";
 import { BunDriver } from "../src/driver";
@@ -442,12 +448,57 @@ describe.skipIf(!databaseUrl)("native Bun PostgreSQL driver", () => {
     }
   }, 10000);
 
+  test.each(["callback", "controlled"] as const)(
+    "%s transaction rejects a commit that PostgreSQL rolled back",
+    async (mode) => {
+      const db = database(config());
+      try {
+        await sql`create temporary table commit_probe (id integer)`.execute(db);
+        const abort = async (trx: Transaction<Record<string, never>>) => {
+          await sql`insert into commit_probe values (1)`.execute(trx);
+          await expect(sql`select 1 / 0`.execute(trx)).rejects.toMatchObject({
+            errno: "22012",
+          });
+        };
+        if (mode === "callback") {
+          await expect(db.transaction().execute(abort)).rejects.toBeInstanceOf(
+            AbortedTransactionError,
+          );
+        } else {
+          const trx = await db.startTransaction().execute();
+          try {
+            await abort(trx);
+            await expect(trx.commit().execute()).rejects.toBeInstanceOf(
+              AbortedTransactionError,
+            );
+            expect(trx.isCommitted).toBe(false);
+            expect(trx.isRolledBack).toBe(true);
+            // With max: 1 this also proves the failed commit released its reservation.
+            await within(
+              sql`select 1`.execute(db),
+              "pool reuse before explicit rollback",
+            );
+            await trx.rollback().execute();
+          } finally {
+            if (!trx.isCommitted && !trx.isRolledBack)
+              await trx.rollback().execute();
+          }
+        }
+        expect(
+          (await sql`select id from commit_probe`.execute(db)).rows,
+        ).toEqual([]);
+      } finally {
+        await db.destroy();
+      }
+    },
+  );
+
   test("supports safely quoted savepoints through a Kysely controlled transaction", async () => {
     const db = database(config());
     try {
       const trx = await db.startTransaction().execute();
       try {
-        await sql`create temporary table native_driver_savepoints (value integer) on commit drop`.execute(
+        await sql`create temporary table native_driver_savepoints (value integer)`.execute(
           trx,
         );
         await sql`insert into native_driver_savepoints values (1)`.execute(trx);
@@ -486,7 +537,13 @@ describe.skipIf(!databaseUrl)("native Bun PostgreSQL driver", () => {
           await trx.rollback().execute();
         throw error;
       }
-      await sql`select 1`.execute(db);
+      expect(
+        (
+          await sql`select value from native_driver_savepoints order by value`.execute(
+            db,
+          )
+        ).rows,
+      ).toEqual([{ value: 1 }, { value: 3 }]);
     } finally {
       await db.destroy();
     }

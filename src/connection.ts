@@ -1,4 +1,5 @@
 import {
+  AbortedTransactionError,
   CompiledQuery,
   type AbortableOperationOptions,
   type ControlConnectionProvider,
@@ -94,7 +95,9 @@ export class BunConnection implements DatabaseConnection {
   }
 
   async commitTransaction(): Promise<void> {
-    await this.executeQuery(CompiledQuery.raw("commit"));
+    const result = await this.#executeNative(CompiledQuery.raw("commit"));
+    // A failed transaction completes COMMIT successfully on the wire, with a ROLLBACK tag.
+    if (result.command === "ROLLBACK") throw new AbortedTransactionError();
   }
 
   /** Bun opens its own cancellation socket; a pool control connection is unnecessary. */
@@ -113,6 +116,29 @@ export class BunConnection implements DatabaseConnection {
     compiledQuery: CompiledQuery,
     options?: AbortableOperationOptions,
   ): Promise<QueryResult<R>> {
+    const result = await this.#executeNative(compiledQuery, options);
+    const rows = normalizeNumericArrayRows(
+      Array.from(result.values()) as R[],
+      result.columns,
+    );
+    if (
+      result.command !== null &&
+      ["INSERT", "UPDATE", "DELETE", "MERGE"].includes(result.command)
+    ) {
+      return {
+        numAffectedRows: BigInt(
+          result.affectedRows ?? result.count ?? rows.length,
+        ),
+        rows,
+      };
+    }
+    return { rows };
+  }
+
+  async #executeNative(
+    compiledQuery: CompiledQuery,
+    options?: AbortableOperationOptions,
+  ) {
     // Kysely forwards only { signal }, not inflightQueryAbortStrategy. Check it
     // before SQL starts; only cancelQuery may request native cancellation.
     // Direct callers therefore cannot abort in-flight SQL using signal alone.
@@ -146,23 +172,7 @@ export class BunConnection implements DatabaseConnection {
     try {
       // Do not race against the signal: native settlement owns the reservation.
       // Kysely itself races the public operation and preserves signal.reason.
-      const result = await query;
-      const rows = normalizeNumericArrayRows(
-        Array.from(result.values()) as R[],
-        result.columns,
-      );
-      if (
-        result.command !== null &&
-        ["INSERT", "UPDATE", "DELETE", "MERGE"].includes(result.command)
-      ) {
-        return {
-          numAffectedRows: BigInt(
-            result.affectedRows ?? result.count ?? rows.length,
-          ),
-          rows,
-        };
-      }
-      return { rows };
+      return await query;
     } catch (error) {
       if (
         error !== null &&
