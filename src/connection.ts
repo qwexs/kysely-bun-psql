@@ -20,19 +20,30 @@ type ActiveQuery = {
 const INT4_ARRAY_OID = 1007;
 const FLOAT4_ARRAY_OID = 1021;
 
+function isNumericArrayType(type: number): boolean {
+  return type === INT4_ARRAY_OID || type === FLOAT4_ARRAY_OID;
+}
+
 function normalizeNumericArrayRows<R>(
   rows: R[],
   columns: readonly SQL.ResultColumn[] | null | undefined,
 ): R[] {
+  if (
+    !rows.length ||
+    !columns?.some((column) => isNumericArrayType(column.type))
+  ) {
+    return rows;
+  }
+
   // Object rows keep the last duplicate name, even if its type is not numeric.
   const typesByName = new Map<string, number>();
-  for (const column of columns ?? []) {
+  for (const column of columns) {
     typesByName.set(column.name, column.type);
   }
-  const numericColumns = [...typesByName].filter(
-    ([, type]) => type === INT4_ARRAY_OID || type === FLOAT4_ARRAY_OID,
+  const numericColumns = [...typesByName].filter(([, type]) =>
+    isNumericArrayType(type),
   );
-  if (!numericColumns.length || !rows.length) return rows;
+  if (!numericColumns.length) return rows;
 
   return rows.map((row) => {
     if (row === null || typeof row !== "object") return row;

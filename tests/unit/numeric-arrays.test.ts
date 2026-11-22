@@ -88,6 +88,24 @@ test.each([{ metadata: undefined }, { metadata: null }, { metadata: [] }])(
   },
 );
 
+test("scalar results skip column name resolution", async () => {
+  const row = { id: 42, payload: "text" };
+  const fake = createFakeReservedSQL({
+    rows: [row],
+    columns: [23, 25].map((type) => ({
+      type,
+      table: 0,
+      get name(): string {
+        throw new Error("Scalar columns do not need name resolution");
+      },
+    })),
+  });
+  const result = await new BunConnection(fake.reserved).executeQuery(
+    CompiledQuery.raw("select"),
+  );
+  expect(result.rows[0]).toBe(row);
+});
+
 test("numeric normalization requires matching column OIDs and actual value types", async () => {
   const row = {
     bytes: new Int32Array([1, 2]),
