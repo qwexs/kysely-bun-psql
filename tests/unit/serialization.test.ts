@@ -43,8 +43,8 @@ describe("legacy PostgreSQL array literals (not the native path)", () => {
     },
     {
       name: "delimiters and whitespace",
-      input: ["a,b", "{x}", " a ", "a\nb", "Привет"],
-      expected: '{"a,b","{x}"," a ","a\nb","Привет"}',
+      input: ["a,b", "{x}", " a ", "a\nb", "Hello 🌍"],
+      expected: '{"a,b","{x}"," a ","a\nb","Hello 🌍"}',
     },
     {
       name: "recursive dimensions",

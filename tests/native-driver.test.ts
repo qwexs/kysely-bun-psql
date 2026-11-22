@@ -151,7 +151,10 @@ describe.skipIf(!databaseUrl)("native Bun PostgreSQL driver", () => {
           }),
         "LISTEN",
       );
-      const payload = JSON.stringify({ value: 'Привет, "Bun"!', id: channel });
+      const payload = JSON.stringify({
+        value: 'Hello, "Bun"! 🌍',
+        id: channel,
+      });
       await within(client.notify(channel, payload), "NOTIFY");
       expect(await within(first.promise, "first notification delivery")).toBe(
         payload,
@@ -208,7 +211,7 @@ describe.skipIf(!databaseUrl)("native Bun PostgreSQL driver", () => {
           "create COPY temp table",
         );
         const input = new TextEncoder().encode(
-          '1,"Привет, ""Bun""!"\n2,\n3,"line one\nline two"\n',
+          '1,"Hello, ""Bun""! 🌍"\n2,\n3,"line one\nline two"\n',
         );
         const source = new ReadableStream<Uint8Array>({
           start(controller) {
@@ -241,7 +244,7 @@ describe.skipIf(!databaseUrl)("native Bun PostgreSQL driver", () => {
           "Kysely-compiled query after COPY FROM",
         );
         expect(selected.rows).toEqual([
-          { id: 1, value: 'Привет, "Bun"!' },
+          { id: 1, value: 'Hello, "Bun"! 🌍' },
           { id: 2, value: null },
           { id: 3, value: "line one\nline two" },
         ]);

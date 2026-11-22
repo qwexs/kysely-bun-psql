@@ -367,7 +367,7 @@ describe("BunDriver acquireConnection", () => {
 });
 
 describe("BunDriver savepoints", () => {
-  test.each(["simple", 'a"; rollback; --', "with space.dot", "точка"])(
+  test.each(["simple", 'a"; rollback; --', "with space.dot", "checkpoint_✓"])(
     "uses the provided Kysely compiler to quote %s as one identifier",
     async (name) => {
       const client = createClient();

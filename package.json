@@ -42,7 +42,7 @@
     "prepack": "bun --bun run build",
     "test": "bun run test:unit && bun run test:integration",
     "test:unit": "bun test ./tests/unit",
-    "test:integration": "bun test --preload ./tests/setup.ts ./tests/impl.test.ts ./tests/dialect.test.ts ./tests/bigint.test.ts ./tests/native-parameters.test.ts ./tests/native-driver.test.ts ./tests/native-connection.test.ts ./tests/numeric-arrays.test.ts",
+    "test:integration": "bun test --preload ./tests/setup.ts ./tests/impl.test.ts ./tests/dialect.test.ts ./tests/bigint.test.ts ./tests/native-parameters.test.ts ./tests/native-driver.test.ts ./tests/native-connection.test.ts ./tests/numeric-arrays.test.ts ./tests/upstream-parity.test.ts",
     "test:dialect": "bun test --preload ./tests/setup.ts ./tests/dialect.test.ts",
     "test:package": "bun run build && bun test ./tests/package-smoke.test.ts ./tests/git-install-smoke.test.ts",
     "test:ci": "bun run fmt:check && bun run type-check && bun run test && bun run test:package",
